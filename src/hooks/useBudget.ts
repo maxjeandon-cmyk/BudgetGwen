@@ -20,6 +20,18 @@ const initialData: BudgetData = {
   categories: [...DEFAULT_CATEGORIES],
 };
 
+// Arrondi aux centimes : evite la derive flottante (0.1 + 0.2 !== 0.3)
+const round2 = (value: number): number => Math.round(value * 100) / 100;
+
+// Une transaction est EFFECTIVE (comptee dans les soldes) si et seulement si
+// elle n'appartient a aucun lot, ou si son lot est confirme.
+// INVARIANT: un lot draft ou annule ne modifie JAMAIS les soldes.
+export function isEffectiveTransaction(transaction: Transaction, batches: Batch[]): boolean {
+  if (!transaction.batchId) return true;
+  const batch = batches.find(b => b.id === transaction.batchId);
+  return batch?.status === 'confirmed';
+}
+
 export function useBudget() {
   const [data, setData] = useState<BudgetData>(() => {
     if (typeof window !== 'undefined') {
@@ -48,10 +60,11 @@ export function useBudget() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
   }, []);
 
-  // Calcule le solde d'un compte à partir des transactions
-  const calculateAccountBalance = useCallback((accountId: string, transactions: Transaction[]): number => {
+  // Calcule le solde d'un compte à partir des transactions EFFECTIVES
+  const calculateAccountBalance = useCallback((accountId: string, transactions: Transaction[], batches: Batch[]): number => {
     let balance = 0;
     transactions.forEach(t => {
+      if (!isEffectiveTransaction(t, batches)) return;
       if (t.debitAccountId === accountId) {
         balance -= t.amount;
       }
@@ -59,20 +72,25 @@ export function useBudget() {
         balance += t.amount;
       }
     });
-    return balance;
+    return round2(balance);
   }, []);
 
-  // Recalcule tous les soldes des comptes
-  const recalculateAllBalances = useCallback((transactions: Transaction[], accounts: Account[]): Account[] => {
+  // Recalcule tous les soldes des comptes (par agregation, jamais en place)
+  const recalculateAllBalances = useCallback((transactions: Transaction[], accounts: Account[], batches: Batch[]): Account[] => {
     return accounts.map(account => ({
       ...account,
-      balance: calculateAccountBalance(account.id, transactions),
+      balance: calculateAccountBalance(account.id, transactions, batches),
     }));
   }, [calculateAccountBalance]);
 
   // Ajoute une transaction avec méthode double entrée
   // INVARIANT: chaque transaction a exactement un débit et un crédit de même montant
   const addTransaction = useCallback((transaction: Omit<Transaction, 'id'>) => {
+    // Garde-fou: montant strictement positif et comptes debit/credit distincts
+    if (!(transaction.amount > 0) || transaction.debitAccountId === transaction.creditAccountId) {
+      return;
+    }
+
     setData(prev => {
       const newTransaction: Transaction = {
         ...transaction,
@@ -82,7 +100,8 @@ export function useBudget() {
       // Recalcule tous les soldes
       const updatedAccounts = recalculateAllBalances(
         [...prev.transactions, newTransaction],
-        prev.accounts
+        prev.accounts,
+        prev.batches
       );
 
       return {
@@ -135,6 +154,7 @@ export function useBudget() {
   }, [generateId]);
 
   // Ajoute une transaction à un lot (en mode draft)
+  // INVARIANT: la transaction draft ne compte pas dans les soldes
   const addTransactionToBatch = useCallback((batchId: string, transaction: Omit<Transaction, 'id' | 'batchId'>) => {
     setData(prev => {
       const batchIndex = prev.batches.findIndex(b => b.id === batchId);
@@ -157,13 +177,21 @@ export function useBudget() {
         transactionIds: [...batch.transactionIds, newTransaction.id],
       };
 
+      // Soldes recalcules : la transaction draft reste sans effet
+      const updatedAccounts = recalculateAllBalances(
+        [...prev.transactions, newTransaction],
+        prev.accounts,
+        updatedBatches
+      );
+
       return {
         ...prev,
         batches: updatedBatches,
         transactions: [...prev.transactions, newTransaction],
+        accounts: updatedAccounts,
       };
     });
-  }, [generateId]);
+  }, [generateId, recalculateAllBalances]);
 
   // Confirme un lot - ATOMIQUE (tout ou rien)
   // INVARIANT: la confirmation applique toutes les transactions du lot
@@ -189,8 +217,8 @@ export function useBudget() {
         status: 'confirmed',
       };
 
-      // Recalcule tous les soldes (atomique)
-      const updatedAccounts = recalculateAllBalances(prev.transactions, prev.accounts);
+      // Recalcule tous les soldes avec le lot confirme (atomique: un seul setData)
+      const updatedAccounts = recalculateAllBalances(prev.transactions, prev.accounts, updatedBatches);
 
       return {
         ...prev,
@@ -216,12 +244,35 @@ export function useBudget() {
         status: 'cancelled',
       };
 
+      // Soldes recalcules : le lot annule n'a toujours eu aucun effet,
+      // mais on recalcule par agregation pour garantir la coherence
+      const updatedAccounts = recalculateAllBalances(prev.transactions, prev.accounts, updatedBatches);
+
       return {
         ...prev,
         batches: updatedBatches,
+        accounts: updatedAccounts,
       };
     });
-  }, []);
+  }, [recalculateAllBalances]);
+
+  // Supprime un lot et TOUTES ses transactions (peu importe son statut)
+  const deleteBatch = useCallback((batchId: string) => {
+    setData(prev => {
+      const batch = prev.batches.find(b => b.id === batchId);
+      if (!batch) return prev;
+
+      const updatedTransactions = prev.transactions.filter(t => t.batchId !== batchId);
+      const updatedAccounts = recalculateAllBalances(updatedTransactions, prev.accounts, prev.batches);
+
+      return {
+        ...prev,
+        transactions: updatedTransactions,
+        batches: prev.batches.filter(b => b.id !== batchId),
+        accounts: updatedAccounts,
+      };
+    });
+  }, [recalculateAllBalances]);
 
   // Met à jour une transaction
   const updateTransaction = useCallback((id: string, updates: Partial<Transaction>) => {
@@ -232,35 +283,37 @@ export function useBudget() {
       const oldTransaction = prev.transactions[transactionIndex];
       const newTransaction = { ...oldTransaction, ...updates };
 
-      // Recalcule tous les soldes
-      const updatedAccounts = recalculateAllBalances(
-        prev.transactions.map(t => t.id === id ? newTransaction : t),
-        prev.accounts
-      );
+      const updatedTransactions = prev.transactions.map(t => t.id === id ? newTransaction : t);
+      const updatedAccounts = recalculateAllBalances(updatedTransactions, prev.accounts, prev.batches);
 
       return {
         ...prev,
-        transactions: prev.transactions.map(t => t.id === id ? newTransaction : t),
+        transactions: updatedTransactions,
         accounts: updatedAccounts,
       };
     });
   }, [recalculateAllBalances]);
 
-  // Supprime une transaction
+  // Supprime une transaction (et nettoie la reference dans son lot eventuel)
   const deleteTransaction = useCallback((id: string) => {
     setData(prev => {
       const transaction = prev.transactions.find(t => t.id === id);
       if (!transaction) return prev;
 
-      // Recalcule tous les soldes sans cette transaction
-      const updatedAccounts = recalculateAllBalances(
-        prev.transactions.filter(t => t.id !== id),
-        prev.accounts
+      // Retire l ID de la transaction de son lot, sinon confirmBatch echouerait en silence
+      const updatedBatches = prev.batches.map(b =>
+        b.transactionIds.includes(id)
+          ? { ...b, transactionIds: b.transactionIds.filter(tid => tid !== id) }
+          : b
       );
+
+      const updatedTransactions = prev.transactions.filter(t => t.id !== id);
+      const updatedAccounts = recalculateAllBalances(updatedTransactions, prev.accounts, updatedBatches);
 
       return {
         ...prev,
-        transactions: prev.transactions.filter(t => t.id !== id),
+        transactions: updatedTransactions,
+        batches: updatedBatches,
         accounts: updatedAccounts,
       };
     });
@@ -324,55 +377,65 @@ export function useBudget() {
     });
   }, []);
 
-  // Calcule le résumé mensuel
+  // Calcule le résumé mensuel (sur les transactions EFFECTIVES uniquement)
   const getMonthlySummary = useCallback((month: string) => {
-    const monthTransactions = data.transactions.filter(t => t.date.startsWith(month));
+    const monthTransactions = data.transactions.filter(
+      t => t.date.startsWith(month) && isEffectiveTransaction(t, data.batches)
+    );
+    const accountType = (id: string): string | undefined =>
+      data.accounts.find(a => a.id === id)?.type;
 
-    // Revenus : transactions où le crédit est sur un compte de type 'revenu'
+    // Revenu: l argent entre dans les actifs/passifs depuis un compte de flux
+    // (credit sur un compte 'revenu', ou debit actif/passif + credit hors actif/passif)
     const totalIncome = monthTransactions
       .filter(t => {
-        const creditAccount = data.accounts.find(a => a.id === t.creditAccountId);
-        return creditAccount?.type === 'revenu';
+        const creditType = accountType(t.creditAccountId);
+        const debitType = accountType(t.debitAccountId);
+        return creditType === 'revenu' ||
+          ((debitType === 'actif' || debitType === 'passif') && creditType !== 'actif' && creditType !== 'passif');
       })
       .reduce((sum, t) => sum + t.amount, 0);
 
-    // Dépenses : transactions où le débit est sur un compte de type 'depense'
+    // Depense: l argent sort des actifs/passifs vers un compte de flux
+    // (debit sur un compte 'depense', ou credit actif/passif + debit hors actif/passif)
     const totalExpense = monthTransactions
       .filter(t => {
-        const debitAccount = data.accounts.find(a => a.id === t.debitAccountId);
-        return debitAccount?.type === 'depense';
+        const debitType = accountType(t.debitAccountId);
+        const creditType = accountType(t.creditAccountId);
+        return debitType === 'depense' ||
+          ((creditType === 'actif' || creditType === 'passif') && debitType !== 'actif' && debitType !== 'passif');
       })
       .reduce((sum, t) => sum + t.amount, 0);
 
     // Solde mensuel
-    const netBalance = totalIncome - totalExpense;
+    const netBalance = round2(totalIncome - totalExpense);
 
-    // Par catégorie (simplifié)
+    // Par catégorie
     const byCategory: Record<string, number> = {};
     monthTransactions.forEach(t => {
       if (t.debitCategoryId) {
-        byCategory[t.debitCategoryId] = (byCategory[t.debitCategoryId] || 0) - t.amount;
+        byCategory[t.debitCategoryId] = round2((byCategory[t.debitCategoryId] || 0) - t.amount);
       }
       if (t.creditCategoryId) {
-        byCategory[t.creditCategoryId] = (byCategory[t.creditCategoryId] || 0) + t.amount;
+        byCategory[t.creditCategoryId] = round2((byCategory[t.creditCategoryId] || 0) + t.amount);
       }
     });
 
     // Par compte
     const byAccount: Record<string, number> = {};
     data.accounts.forEach(acc => {
-      byAccount[acc.id] = calculateAccountBalance(acc.id, monthTransactions);
+      byAccount[acc.id] = calculateAccountBalance(acc.id, monthTransactions, data.batches);
     });
 
     return {
       month,
-      totalIncome,
-      totalExpense,
+      totalIncome: round2(totalIncome),
+      totalExpense: round2(totalExpense),
       netBalance,
       byCategory,
       byAccount,
     };
-  }, [data.accounts, data.transactions, calculateAccountBalance]);
+  }, [data.accounts, data.batches, data.transactions, calculateAccountBalance]);
 
   // Calcule le solde global (actifs + revenus - passifs - dépenses - capital)
   const getOverallBalance = useCallback(() => {
@@ -425,6 +488,7 @@ export function useBudget() {
     addTransactionToBatch,
     confirmBatch,
     cancelBatch,
+    deleteBatch,
     // Accounts
     updateAccount,
     addAccount,

@@ -1,13 +1,14 @@
 /**
- * Tests de logique metier pour BudgetGwen - Lot 0
+ * Tests de logique metier pour BudgetGwen - Lot 1 (correctifs invariants)
  * Verifie les invariants de partie double, calculs de soldes, et cycle de lot
  * Donnees factices fixes pour garantie de reproductibilite
- * 
+ *
  * CONTRAT: Les montants sont en EUROS (et Francs suisses)
  */
 
 import { describe, it, expect } from 'vitest';
 import type { Transaction, Account, Batch } from '../src/types/budget';
+import { isEffectiveTransaction } from '../src/hooks/useBudget';
 
 // === DONNEES FACTICES FIXES ===
 // Comptes avec soldes initiaux a zero pour simplifier les tests
@@ -19,44 +20,64 @@ const testAccountsZero: Account[] = [
   { id: 'food', name: 'Nourriture', type: 'depense', balance: 0, color: '#FF9800' },
 ];
 
-// === HELPERS (copies des fonctions de useBudget.ts) ===
-function calculateAccountBalance(accountId: string, transactions: Transaction[]): number {
+// === HELPERS (copies fideles des fonctions de useBudget.ts) ===
+const round2 = (value: number): number => Math.round(value * 100) / 100;
+
+function calculateAccountBalance(accountId: string, transactions: Transaction[], batches: Batch[]): number {
   let balance = 0;
   transactions.forEach(t => {
+    if (!isEffectiveTransaction(t, batches)) return;
     if (t.debitAccountId === accountId) balance -= t.amount;
     if (t.creditAccountId === accountId) balance += t.amount;
   });
-  return balance;
+  return round2(balance);
 }
 
-function recalculateAllBalances(transactions: Transaction[], accounts: Account[]): Account[] {
+function recalculateAllBalances(transactions: Transaction[], accounts: Account[], batches: Batch[]): Account[] {
   return accounts.map(account => ({
     ...account,
-    balance: calculateAccountBalance(account.id, transactions),
+    balance: calculateAccountBalance(account.id, transactions, batches),
   }));
 }
 
-function getMonthlySummary(transactions: Transaction[], accounts: Account[], month: string) {
-  const monthTransactions = transactions.filter(t => t.date.startsWith(month));
+function getMonthlySummary(transactions: Transaction[], accounts: Account[], batches: Batch[], month: string) {
+  const monthTransactions = transactions.filter(
+    t => t.date.startsWith(month) && isEffectiveTransaction(t, batches)
+  );
+  const accountType = (id: string): string | undefined =>
+    accounts.find(a => a.id === id)?.type;
+
   const totalIncome = monthTransactions
-    .filter(t => accounts.find(a => a.id === t.creditAccountId)?.type === 'revenu')
+    .filter(t => {
+      const creditType = accountType(t.creditAccountId);
+      const debitType = accountType(t.debitAccountId);
+      return creditType === 'revenu' ||
+        ((debitType === 'actif' || debitType === 'passif') && creditType !== 'actif' && creditType !== 'passif');
+    })
     .reduce((sum, t) => sum + t.amount, 0);
+
   const totalExpense = monthTransactions
-    .filter(t => accounts.find(a => a.id === t.debitAccountId)?.type === 'depense')
+    .filter(t => {
+      const debitType = accountType(t.debitAccountId);
+      const creditType = accountType(t.creditAccountId);
+      return debitType === 'depense' ||
+        ((creditType === 'actif' || creditType === 'passif') && debitType !== 'actif' && debitType !== 'passif');
+    })
     .reduce((sum, t) => sum + t.amount, 0);
-  const netBalance = totalIncome - totalExpense;
+
+  const netBalance = round2(totalIncome - totalExpense);
   const byCategory: Record<string, number> = {};
   monthTransactions.forEach(t => {
-    if (t.debitCategoryId) byCategory[t.debitCategoryId] = (byCategory[t.debitCategoryId] || 0) - t.amount;
-    if (t.creditCategoryId) byCategory[t.creditCategoryId] = (byCategory[t.creditCategoryId] || 0) + t.amount;
+    if (t.debitCategoryId) byCategory[t.debitCategoryId] = round2((byCategory[t.debitCategoryId] || 0) - t.amount);
+    if (t.creditCategoryId) byCategory[t.creditCategoryId] = round2((byCategory[t.creditCategoryId] || 0) + t.amount);
   });
   const byAccount: Record<string, number> = {};
-  accounts.forEach(acc => { byAccount[acc.id] = calculateAccountBalance(acc.id, monthTransactions); });
-  return { month, totalIncome, totalExpense, netBalance, byCategory, byAccount };
+  accounts.forEach(acc => { byAccount[acc.id] = calculateAccountBalance(acc.id, monthTransactions, batches); });
+  return { month, totalIncome: round2(totalIncome), totalExpense: round2(totalExpense), netBalance, byCategory, byAccount };
 }
 
 // === TESTS ===
-describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
+describe('BudgetGwen Lot 1 - Tests de Logique Metier', () => {
   describe('1. Invariants de Partie Double', () => {
     it('1.1 Chaque transaction a exactement un debit et un credit', () => {
       const t: Transaction = {
@@ -91,8 +112,6 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
     });
 
     it('1.4 Montants en EUROS ou Francs suisses', () => {
-      // Le systeme supporte les deux devises
-      // Les montants sont en unites (pas en centimes)
       const tEUR: Transaction = {
         id: 't1', date: '2024-01-01',
         debitAccountId: 'bank', debitCategoryId: undefined,
@@ -118,8 +137,8 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
         creditAccountId: 'cash', creditCategoryId: undefined,
         amount: 100, label: 'Retrait',
       }];
-      expect(calculateAccountBalance('bank', txs)).toBe(-100);
-      expect(calculateAccountBalance('cash', txs)).toBe(100);
+      expect(calculateAccountBalance('bank', txs, [])).toBe(-100);
+      expect(calculateAccountBalance('cash', txs, [])).toBe(100);
     });
 
     it('2.2 Solde compte avec credit unique', () => {
@@ -129,8 +148,8 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
         creditAccountId: 'bank', creditCategoryId: 'salary',
         amount: 200, label: 'Depot',
       }];
-      expect(calculateAccountBalance('bank', txs)).toBe(200);
-      expect(calculateAccountBalance('cash', txs)).toBe(-200);
+      expect(calculateAccountBalance('bank', txs, [])).toBe(200);
+      expect(calculateAccountBalance('cash', txs, [])).toBe(-200);
     });
 
     it('2.3 Solde avec plusieurs transactions', () => {
@@ -140,7 +159,7 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
         { id: 't3', date: '2024-01-03', debitAccountId: 'bank', creditAccountId: 'credit', amount: 50, label: 'T3' },
       ];
       // bank: -100 (t1 debit) + 500 (t2 credit) - 50 (t3 debit) = 350
-      expect(calculateAccountBalance('bank', txs)).toBe(350);
+      expect(calculateAccountBalance('bank', txs, [])).toBe(350);
     });
 
     it('2.4 Recalcul complet des soldes', () => {
@@ -154,7 +173,7 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
         { id: 'bank', name: 'B', type: 'actif', balance: 0, color: '#000' },
         { id: 'cash', name: 'C', type: 'actif', balance: 0, color: '#000' },
       ];
-      const updated = recalculateAllBalances(txs, initial);
+      const updated = recalculateAllBalances(txs, initial, []);
       expect(updated.find(a => a.id === 'bank')?.balance).toBe(-100);
       expect(updated.find(a => a.id === 'cash')?.balance).toBe(100);
     });
@@ -172,7 +191,7 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
       ];
       const originalBankBalance = accounts.find(a => a.id === 'bank')?.balance;
       const originalCashBalance = accounts.find(a => a.id === 'cash')?.balance;
-      const updated = recalculateAllBalances(txs, accounts);
+      const updated = recalculateAllBalances(txs, accounts, []);
       // Le tableau original ne doit pas etre modifie
       expect(accounts.find(a => a.id === 'bank')?.balance).toBe(originalBankBalance);
       expect(accounts.find(a => a.id === 'cash')?.balance).toBe(originalCashBalance);
@@ -180,31 +199,48 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
       expect(updated.find(a => a.id === 'bank')?.balance).toBe(-100);
       expect(updated.find(a => a.id === 'cash')?.balance).toBe(100);
     });
+
+    it('2.6 Arrondi aux centimes - pas de derive flottante', () => {
+      const txs: Transaction[] = [];
+      for (let i = 0; i < 1000; i++) {
+        txs.push({
+          id: `tx${i}`, date: '2024-01-01',
+          debitAccountId: 'cash', debitCategoryId: undefined,
+          creditAccountId: 'bank', creditCategoryId: undefined,
+          amount: 0.1, label: `Micro ${i}`,
+        });
+      }
+      // 1000 x 0.1 en flottant pur donne 99.9999999999986 ; arrondi = 100
+      expect(calculateAccountBalance('bank', txs, [])).toBe(100);
+    });
   });
 
   describe('3. Cycle de Lot (draft -> confirmed -> cancelled)', () => {
-    it('3.1 Lot en draft - transactions existent mais non appliquees', () => {
-      const batch: Batch = {
-        id: 'b1', name: 'Lot draft', status: 'draft', transactionIds: ['t1'],
-      };
+    it('3.1 Lot en draft - transactions NON appliquees aux soldes', () => {
+      const batches: Batch[] = [
+        { id: 'b1', name: 'Lot draft', status: 'draft', transactionIds: ['t1'] },
+      ];
       const txs: Transaction[] = [{
         id: 't1', date: '2024-01-01',
         debitAccountId: 'bank', debitCategoryId: undefined,
         creditAccountId: 'cash', creditCategoryId: undefined,
         amount: 100, label: 'Tx draft', batchId: 'b1',
       }];
-      expect(batch.status).toBe('draft');
-      const updated = recalculateAllBalances(txs, testAccountsZero);
-      expect(updated.find(a => a.id === 'bank')?.balance).toBe(-100);
-      expect(updated.find(a => a.id === 'cash')?.balance).toBe(100);
+      const updated = recalculateAllBalances(txs, testAccountsZero, batches);
+      // INVARIANT: un lot draft ne modifie jamais les soldes
+      expect(updated.find(a => a.id === 'bank')?.balance).toBe(0);
+      expect(updated.find(a => a.id === 'cash')?.balance).toBe(0);
     });
 
     it('3.2 Confirmation de lot - applique toutes les transactions (atomique)', () => {
+      const batches: Batch[] = [
+        { id: 'b1', name: 'Lot confirme', status: 'confirmed', transactionIds: ['t1', 't2'] },
+      ];
       const txs: Transaction[] = [
         { id: 't1', date: '2024-01-01', debitAccountId: 'bank', creditAccountId: 'cash', amount: 100, label: 'T1', batchId: 'b1' },
         { id: 't2', date: '2024-01-02', debitAccountId: 'cash', creditAccountId: 'bank', amount: 500, label: 'T2', batchId: 'b1' },
       ];
-      const updated = recalculateAllBalances(txs, testAccountsZero);
+      const updated = recalculateAllBalances(txs, testAccountsZero, batches);
       // bank: -100 (t1 debit) + 500 (t2 credit) = 400
       expect(updated.find(a => a.id === 'bank')?.balance).toBe(400);
       expect(updated.find(a => a.id === 'cash')?.balance).toBe(-400);
@@ -212,20 +248,54 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
     });
 
     it('3.3 Lot annule - ne modifie jamais les soldes', () => {
-      const cancelledBatch: Batch = {
-        id: 'b1', name: 'Lot annule', status: 'cancelled', transactionIds: [],
-      };
-      expect(cancelledBatch.status).toBe('cancelled');
+      const batches: Batch[] = [
+        { id: 'b1', name: 'Lot annule', status: 'cancelled', transactionIds: ['t1'] },
+      ];
+      const txs: Transaction[] = [{
+        id: 't1', date: '2024-01-01',
+        debitAccountId: 'bank', debitCategoryId: undefined,
+        creditAccountId: 'cash', creditCategoryId: undefined,
+        amount: 100, label: 'Tx annulee', batchId: 'b1',
+      }];
+      const updated = recalculateAllBalances(txs, testAccountsZero, batches);
+      // INVARIANT: un lot annule ne modifie jamais les soldes
+      expect(updated.find(a => a.id === 'bank')?.balance).toBe(0);
+      expect(updated.find(a => a.id === 'cash')?.balance).toBe(0);
     });
 
-    it('3.4 Cycle complet: draft -> confirmed -> cancelled', () => {
-      const batch1: Batch = { id: 'b1', name: 'B1', status: 'draft', transactionIds: [] };
-      const batch2: Batch = { id: 'b2', name: 'B2', status: 'confirmed', transactionIds: [] };
-      const batch3: Batch = { id: 'b3', name: 'B3', status: 'cancelled', transactionIds: [] };
-      
-      expect(batch1.status).toBe('draft');
-      expect(batch2.status).toBe('confirmed');
-      expect(batch3.status).toBe('cancelled');
+    it('3.4 Cycle complet: draft -> confirmed -> cancelled (par statut, soldes coherents)', () => {
+      const txs: Transaction[] = [{
+        id: 't1', date: '2024-01-01',
+        debitAccountId: 'bank', debitCategoryId: undefined,
+        creditAccountId: 'cash', creditCategoryId: undefined,
+        amount: 100, label: 'Tx', batchId: 'b1',
+      }];
+      const draftBatches: Batch[] = [{ id: 'b1', name: 'B1', status: 'draft', transactionIds: ['t1'] }];
+      const confirmedBatches: Batch[] = [{ id: 'b1', name: 'B1', status: 'confirmed', transactionIds: ['t1'] }];
+      const cancelledBatches: Batch[] = [{ id: 'b1', name: 'B1', status: 'cancelled', transactionIds: ['t1'] }];
+
+      expect(recalculateAllBalances(txs, testAccountsZero, draftBatches).find(a => a.id === 'bank')?.balance).toBe(0);
+      expect(recalculateAllBalances(txs, testAccountsZero, confirmedBatches).find(a => a.id === 'bank')?.balance).toBe(-100);
+      expect(recalculateAllBalances(txs, testAccountsZero, cancelledBatches).find(a => a.id === 'bank')?.balance).toBe(0);
+    });
+
+    it('3.5 Suppression d une transaction retire la reference du lot', () => {
+      // Simule deleteTransaction: la transaction disparait ET le lot nettoie son transactionIds
+      const batches: Batch[] = [
+        { id: 'b1', name: 'B1', status: 'draft', transactionIds: ['t1', 't2'] },
+      ];
+      const cleanedBatches = batches.map(b =>
+        b.transactionIds.includes('t1')
+          ? { ...b, transactionIds: b.transactionIds.filter(tid => tid !== 't1') }
+          : b
+      );
+      const cleanedTx: Transaction[] = [{
+        id: 't2', date: '2024-01-01', debitAccountId: 'bank', creditAccountId: 'cash', amount: 50, label: 'T2', batchId: 'b1',
+      }];
+      // Le lot nettoyé peut etre confirme sans erreur de coherence (2 == 2)
+      const confirmed: Batch[] = [{ ...cleanedBatches[0], status: 'confirmed' }];
+      expect(cleanedTx.filter(t => t.batchId === 'b1').length).toBe(confirmed[0].transactionIds.length);
+      expect(recalculateAllBalances(cleanedTx, testAccountsZero, confirmed).find(a => a.id === 'bank')?.balance).toBe(-50);
     });
   });
 
@@ -236,7 +306,7 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
         { id: 't2', date: '2024-01-20', debitAccountId: 'bank', creditAccountId: 'salary', amount: 500, label: 'Prime' },
         { id: 't3', date: '2024-02-01', debitAccountId: 'bank', creditAccountId: 'salary', amount: 2000, label: 'Fevrier' },
       ];
-      const summary = getMonthlySummary(txs, testAccountsZero, '2024-01');
+      const summary = getMonthlySummary(txs, testAccountsZero, [], '2024-01');
       expect(summary.totalIncome).toBe(2500); // 2000 + 500
     });
 
@@ -245,8 +315,26 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
         { id: 't1', date: '2024-01-15', debitAccountId: 'food', creditAccountId: 'bank', amount: 300, label: 'Courses' },
         { id: 't2', date: '2024-01-20', debitAccountId: 'food', creditAccountId: 'cash', amount: 100, label: 'Restaurant' },
       ];
-      const summary = getMonthlySummary(txs, testAccountsZero, '2024-01');
+      const summary = getMonthlySummary(txs, testAccountsZero, [], '2024-01');
       expect(summary.totalExpense).toBe(400); // 300 + 100
+    });
+
+    it('4.2b Depense comptable classique (debit depense, credit actif) comptee', () => {
+      // Payer les courses: l argent sort de la banque vers un compte de flux
+      const txs: Transaction[] = [
+        { id: 't1', date: '2024-01-15', debitAccountId: 'food', creditAccountId: 'bank', amount: 55.30, label: 'Courses' },
+      ];
+      const summary = getMonthlySummary(txs, testAccountsZero, [], '2024-01');
+      expect(summary.totalExpense).toBe(55.30);
+    });
+
+    it('4.2c Un transfert entre actifs n est PAS une depense', () => {
+      const txs: Transaction[] = [
+        { id: 't1', date: '2024-01-15', debitAccountId: 'cash', creditAccountId: 'bank', amount: 100, label: 'Retrait' },
+      ];
+      const summary = getMonthlySummary(txs, testAccountsZero, [], '2024-01');
+      expect(summary.totalExpense).toBe(0);
+      expect(summary.totalIncome).toBe(0);
     });
 
     it('4.3 Solde net mensuel', () => {
@@ -254,7 +342,7 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
         { id: 't1', date: '2024-01-15', debitAccountId: 'bank', creditAccountId: 'salary', amount: 2000, label: 'Revenu' },
         { id: 't2', date: '2024-01-20', debitAccountId: 'food', creditAccountId: 'bank', amount: 500, label: 'Depense' },
       ];
-      const summary = getMonthlySummary(txs, testAccountsZero, '2024-01');
+      const summary = getMonthlySummary(txs, testAccountsZero, [], '2024-01');
       expect(summary.netBalance).toBe(1500); // 2000 - 500
     });
 
@@ -264,7 +352,7 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
         debitAccountId: 'bank', creditAccountId: 'cash',
         amount: 100, label: 'Retrait',
       }];
-      const summary = getMonthlySummary(txs, testAccountsZero, '2024-01');
+      const summary = getMonthlySummary(txs, testAccountsZero, [], '2024-01');
       expect(summary.byAccount['bank']).toBe(-100);
       expect(summary.byAccount['cash']).toBe(100);
       expect(summary.byAccount['credit']).toBe(0);
@@ -275,9 +363,20 @@ describe('BudgetGwen Lot 0 - Tests de Logique Metier', () => {
         { id: 't1', date: '2024-01-15', debitAccountId: 'bank', debitCategoryId: 'food', creditAccountId: 'cash', amount: 100, label: 'Depense' },
         { id: 't2', date: '2024-01-20', debitAccountId: 'bank', creditAccountId: 'salary', creditCategoryId: 'salary', amount: 200, label: 'Revenu' },
       ];
-      const summary = getMonthlySummary(txs, testAccountsZero, '2024-01');
+      const summary = getMonthlySummary(txs, testAccountsZero, [], '2024-01');
       expect(summary.byCategory['food']).toBe(-100);
       expect(summary.byCategory['salary']).toBe(200);
+    });
+
+    it('4.6 Transactions de lot draft exclues du tableau de bord', () => {
+      const batches: Batch[] = [
+        { id: 'b1', name: 'Courses du mois', status: 'draft', transactionIds: ['t1'] },
+      ];
+      const txs: Transaction[] = [
+        { id: 't1', date: '2024-01-15', debitAccountId: 'food', creditAccountId: 'bank', amount: 300, label: 'Courses', batchId: 'b1' },
+      ];
+      const summary = getMonthlySummary(txs, testAccountsZero, batches, '2024-01');
+      expect(summary.totalExpense).toBe(0);
     });
   });
 
