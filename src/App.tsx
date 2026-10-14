@@ -23,6 +23,7 @@ const App: React.FC = () => {
     createBatch,
     confirmBatch,
     cancelBatch,
+    deleteBatch,
     updateTransaction,
     deleteTransaction,
     updateAccount,
@@ -231,9 +232,7 @@ const App: React.FC = () => {
             onSelect={(batch) => console.log('Selected batch:', batch)}
             onConfirm={confirmBatch}
             onCancel={cancelBatch}
-            onDelete={(batchId) => {
-              console.log('Delete batch:', batchId);
-            }}
+            onDelete={deleteBatch}
           />
         </section>
       )}
