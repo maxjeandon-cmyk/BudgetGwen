@@ -1,5 +1,6 @@
 import React from 'react';
-import type { Account } from '../types/budget';
+import type { Account, Category } from '../types/budget';
+import { formatEUR } from '../format';
 
 interface MonthlySummary {
   month: string;
@@ -14,157 +15,122 @@ interface DashboardProps {
   monthlySummary: MonthlySummary;
   accounts: Account[];
   overallBalance: number;
-  onViewDetails: (section: string) => void;
+  categories?: Category[];
+  onViewDetails?: (section: string) => void;
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({
+// Libelle lisible d une categorie : « icone nom »
+const categoryLabel = (category: Category | undefined): string =>
+  category ? `${category.icon} ${category.name}` : 'Catégorie inconnue';
+
+// Pourcentage a la francaise : « 12,5 % »
+const formatPercent = (part: number): string => {
+  const rounded = part.toFixed(1).replace('.', ',');
+  return `${rounded} %`;
+};
+
+const Dashboard = ({
   monthlySummary,
   accounts,
   overallBalance,
-  onViewDetails,
-}) => {
-  // Calcule le pourcentage de dépenses par catégorie
-  const totalExpense = monthlySummary.totalExpense;
-  const expenseByCategory = Object.entries(monthlySummary.byCategory)
-    .filter(([_, value]) => value < 0)
-    .map(([key, value]) => ({ category: key, amount: -value }));
+  categories = [],
+}: DashboardProps) => {
+  const { byCategory } = monthlySummary;
 
-  const incomeByCategory = Object.entries(monthlySummary.byCategory)
-    .filter(([_, value]) => value > 0)
-    .map(([key, value]) => ({ category: key, amount: value }));
+  // Depenses : valeurs negatives du registre par categorie (cote debit)
+  const expenseEntries = Object.entries(byCategory)
+    .filter(([, value]) => value < 0)
+    .map(([id, value]) => ({ id, amount: -value }));
+  const totalExpenseBase = expenseEntries.reduce((sum, e) => sum + e.amount, 0);
 
-  // Formate le mois pour l'affichage
-  const monthLabel = new Date(monthlySummary.month + '-01').toLocaleDateString('fr-FR', {
-    month: 'long',
-    year: 'numeric',
-  });
+  // Revenus : valeurs positives (cote credit)
+  const incomeEntries = Object.entries(byCategory)
+    .filter(([, value]) => value > 0)
+    .map(([id, value]) => ({ id, amount: value }));
+  const totalIncomeBase = incomeEntries.reduce((sum, e) => sum + e.amount, 0);
+
+  const renderChart = (entries: { id: string; amount: number }[], base: number): React.ReactNode[] => {
+    return entries.map(entry => {
+      const part = base > 0 ? entry.amount / base : 0;
+      const category = categories.find(c => c.id === entry.id);
+      return (
+        <div key={entry.id} className="chart-row">
+          <span className="chart-bar-label">{categoryLabel(category)}</span>
+          <div
+            className="chart-bar-container"
+            role="progressbar"
+            aria-valuenow={Math.round(part * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div className="chart-bar" style={{ width: `${Math.round(part * 100)}%` }}></div>
+          </div>
+          <span className="chart-bar-value">
+            {formatEUR(entry.amount)} ({formatPercent(part)})
+          </span>
+        </div>
+      );
+    });
+  };
 
   return (
-    <div className="dashboard">
-      <h2>📊 Tableau de Bord - {monthLabel}</h2>
-
+    <section className="dashboard" aria-label="Tableau de bord">
       <div className="dashboard-grid">
-        {/* Solde Global */}
-        <div className="dashboard-card balance-card">
-          <h3>Solde Global</h3>
-          <div className="balance-amount" style={{ color: overallBalance >= 0 ? '#4CAF50' : '#F44336' }}>
-            {overallBalance >= 0 ? '+' : ''}{overallBalance.toFixed(2)} €
-          </div>
-          <button onClick={() => onViewDetails('accounts')} className="btn-small">
-            Voir les comptes
-          </button>
+        <div className="balance-card">
+          <h3>Solde global</h3>
+          <p className="balance-amount" aria-label={formatEUR(overallBalance)}>
+            {formatEUR(overallBalance)}
+          </p>
+          <p className="card-hint">Tous comptes confondus</p>
         </div>
-
-        {/* Revenus du Mois */}
-        <div className="dashboard-card income-card">
-          <h3>💰 Revenus</h3>
-          <div className="amount">+{monthlySummary.totalIncome.toFixed(2)} €</div>
-          <button onClick={() => onViewDetails('income')} className="btn-small">
-            Détails
-          </button>
+        <div className="income-card">
+          <h3>Revenus du mois</h3>
+          <p className="balance-amount">{formatEUR(monthlySummary.totalIncome)}</p>
+          <p className="card-hint">Ce qui entre</p>
         </div>
-
-        {/* Dépenses du Mois */}
-        <div className="dashboard-card expense-card">
-          <h3>💸 Dépenses</h3>
-          <div className="amount">-{monthlySummary.totalExpense.toFixed(2)} €</div>
-          <button onClick={() => onViewDetails('expense')} className="btn-small">
-            Détails
-          </button>
+        <div className="expense-card">
+          <h3>Dépenses du mois</h3>
+          <p className="balance-amount">{formatEUR(monthlySummary.totalExpense)}</p>
+          <p className="card-hint">Ce qui sort</p>
         </div>
-
-        {/* Solde Mensuel */}
-        <div className="dashboard-card monthly-balance-card">
-          <h3>Solde Mensuel</h3>
-          <div 
-            className="amount" 
-            style={{ color: monthlySummary.netBalance >= 0 ? '#4CAF50' : '#F44336' }}
-          >
-            {monthlySummary.netBalance >= 0 ? '+' : ''}{monthlySummary.netBalance.toFixed(2)} €
-          </div>
-          <button onClick={() => onViewDetails('monthly')} className="btn-small">
-            Voir le détail
-          </button>
+        <div className="monthly-balance-card">
+          <h3>Solde du mois</h3>
+          <p className="balance-amount">{formatEUR(monthlySummary.netBalance)}</p>
+          <p className="card-hint">Revenus moins dépenses</p>
         </div>
       </div>
 
-      {/* Graphique des Dépenses par Catégorie */}
-      <div className="chart-section">
-        <h3>📈 Répartition des Dépenses</h3>
-        {totalExpense === 0 ? (
-          <p>Aucune dépense ce mois-ci</p>
-        ) : (
-          <div className="chart-container">
-            {expenseByCategory.map(({ category, amount }) => {
-              const percentage = (amount / totalExpense) * 100;
-              return (
-                <div key={category} className="chart-bar">
-                  <div className="chart-bar-label">{category}</div>
-                  <div className="chart-bar-container">
-                    <div 
-                      className="chart-bar-fill"
-                      style={{ width: `${percentage}%` }}
-                    ></div>
-                  </div>
-                  <div className="chart-bar-value">
-                    {amount.toFixed(2)} € ({percentage.toFixed(1)}%)
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+      <div className="dashboard-charts">
+        <div className="chart-section">
+          <h3>Dépenses par catégorie</h3>
+          {expenseEntries.length === 0 ? (
+            <p role="status">Aucune dépense ce mois-ci — c'est parfois bon signe.</p>
+          ) : (
+            renderChart(expenseEntries, totalExpenseBase)
+          )}
+        </div>
+        <div className="chart-section">
+          <h3>Revenus par catégorie</h3>
+          {incomeEntries.length === 0 ? (
+            <p role="status">Aucun revenu ce mois-ci — patience, ça viendra.</p>
+          ) : (
+            renderChart(incomeEntries, totalIncomeBase)
+          )}
+        </div>
       </div>
 
-      {/* Graphique des Revenus par Catégorie */}
-      <div className="chart-section">
-        <h3>📊 Répartition des Revenus</h3>
-        {monthlySummary.totalIncome === 0 ? (
-          <p>Aucun revenu ce mois-ci</p>
-        ) : (
-          <div className="chart-container">
-            {incomeByCategory.map(({ category, amount }) => {
-              const percentage = (amount / monthlySummary.totalIncome) * 100;
-              return (
-                <div key={category} className="chart-bar">
-                  <div className="chart-bar-label">{category}</div>
-                  <div className="chart-bar-container">
-                    <div 
-                      className="chart-bar-fill income"
-                      style={{ width: `${percentage}%` }}
-                    ></div>
-                  </div>
-                  <div className="chart-bar-value">
-                    {amount.toFixed(2)} € ({percentage.toFixed(1)}%)
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Soldes par Compte */}
-      <div className="chart-section">
-        <h3>💳 Soldes par Compte</h3>
-        <div className="accounts-balance-grid">
+      <div className="chart-section account-balances">
+        <h3>Soldes par compte</h3>
+        <ul className="balance-list">
           {accounts.map(account => (
-            <div key={account.id} className="account-balance-item">
-              <div className="account-balance-header">
-                <span style={{ color: account.color }}>●</span>
-                <span>{account.name} ({account.type})</span>
-              </div>
-              <div 
-                className="account-balance-amount"
-                style={{ color: account.balance >= 0 ? '#4CAF50' : '#F44336' }}
-              >
-                {account.balance >= 0 ? '+' : ''}{account.balance.toFixed(2)} €
-              </div>
-            </div>
+            <li key={account.id} className="balance-list-item">
+              <span className="chart-bar-label">{account.name}</span>
+              <span className="chart-bar-value">{formatEUR(account.balance)}</span>
+            </li>
           ))}
-        </div>
+        </ul>
       </div>
-    </div>
+    </section>
   );
 };
 

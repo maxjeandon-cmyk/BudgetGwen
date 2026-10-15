@@ -1,215 +1,180 @@
-import React, { useState, useEffect } from 'react';
-import type { Transaction, Account, Category } from '../types/budget';
+import React, { useState } from 'react';
+import type { Account, Category, Transaction } from '../types/budget';
+import { accountTypeLabel } from '../format';
 
 interface TransactionFormProps {
-  transaction?: Partial<Transaction>;
+  transaction: Partial<Transaction> | null;
   accounts: Account[];
   categories: Category[];
-  onSubmit: (data: Omit<Transaction, 'id'>) => void;
+  onSubmit: (transaction: Omit<Transaction, 'id'>) => void;
   onCancel: () => void;
 }
 
-export const TransactionForm: React.FC<TransactionFormProps> = ({
-  transaction = {},
-  accounts,
-  categories,
-  onSubmit,
-  onCancel,
-}) => {
+const todayISO = (): string => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+const parseAmount = (raw: string | number | undefined): number => {
+  if (typeof raw === 'number') return raw;
+  return parseFloat(String(raw || '').replace(',', '.'));
+};
+
+const TransactionForm = ({ transaction, accounts, categories, onSubmit, onCancel }: TransactionFormProps) => {
   const [formData, setFormData] = useState<Omit<Transaction, 'id'>>({
-    date: new Date().toISOString().split('T')[0],
-    debitAccountId: '',
-    debitCategoryId: undefined,
-    creditAccountId: '',
-    creditCategoryId: undefined,
-    amount: 0,
-    label: '',
-    ...transaction,
+    date: transaction?.date || todayISO(),
+    debitAccountId: transaction?.debitAccountId || '',
+    debitCategoryId: transaction?.debitCategoryId,
+    creditAccountId: transaction?.creditAccountId || '',
+    creditCategoryId: transaction?.creditCategoryId,
+    amount: transaction?.amount !== undefined ? transaction.amount : ('' as string | number),
+    label: transaction?.label || '',
   });
+  const [errors, setErrors] = useState({ label: '', amount: '', debit: '', credit: '', sameAccount: '' });
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    if (transaction) {
-      setFormData(prev => ({ ...prev, ...transaction }));
-    }
-  }, [transaction]);
-
-  const handleChange = <K extends keyof Omit<Transaction, 'id'>>(
-    field: K,
-    value: Omit<Transaction, 'id'>[K]
-  ) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    if (errors[field as string]) {
-      setErrors(prev => ({ ...prev, [field as string]: '' }));
-    }
+  // Mise a jour d un champ du formulaire, sans generiques compliques.
+  const setField = (field: string, value: string | number | undefined) => {
+    setFormData(prev => ({ ...prev, [field]: value }) as Omit<Transaction, 'id'>);
   };
 
-  const validate = () => {
-    const newErrors: Record<string, string> = {};
+  // Comptes eligibles au debit : tout sauf les flux de revenus et de capital.
+  const debitAccounts = accounts.filter(a => a.type !== 'revenu' && a.type !== 'capital');
+  // Comptes eligibles au credit : tout sauf les comptes de depense.
+  const creditAccounts = accounts.filter(a => a.type !== 'depense');
 
-    if (!formData.debitAccountId) {
-      newErrors.debitAccountId = 'Le compte de débit est obligatoire';
+  const handleSubmit = () => {
+    const next = { ...errors, label: '', amount: '', debit: '', credit: '', sameAccount: '' };
+    if (!formData.label.trim()) next.label = 'Le libellé est obligatoire.';
+    const amount = parseAmount(formData.amount);
+    if (isNaN(amount) || amount <= 0) next.amount = 'Le montant doit être supérieur à 0.';
+    if (!formData.debitAccountId) next.debit = 'Choisissez le compte à débiter.';
+    if (!formData.creditAccountId) next.credit = 'Choisissez le compte à créditer.';
+    if (formData.debitAccountId && formData.creditAccountId && formData.debitAccountId === formData.creditAccountId) {
+      next.sameAccount = 'Débit et crédit doivent être deux comptes différents.';
     }
-    if (!formData.creditAccountId) {
-      newErrors.creditAccountId = 'Le compte de crédit est obligatoire';
-    }
-    if (formData.debitAccountId === formData.creditAccountId) {
-      newErrors.sameAccount = 'Les comptes doivent être différents';
-    }
-    if (formData.amount <= 0) {
-      newErrors.amount = 'Le montant doit être supérieur à 0';
-    }
-    if (!formData.label.trim()) {
-      newErrors.label = 'Le libellé est obligatoire';
-    }
+    setErrors(next);
+    if (next.label || next.amount || next.debit || next.credit || next.sameAccount) return;
 
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validate()) return;
-
-    onSubmit(formData);
-    setFormData({
-      date: new Date().toISOString().split('T')[0],
-      debitAccountId: '',
-      debitCategoryId: undefined,
-      creditAccountId: '',
-      creditCategoryId: undefined,
-      amount: 0,
-      label: '',
+    onSubmit({
+      date: formData.date,
+      debitAccountId: formData.debitAccountId,
+      debitCategoryId: formData.debitCategoryId || undefined,
+      creditAccountId: formData.creditAccountId,
+      creditCategoryId: formData.creditCategoryId || undefined,
+      amount,
+      label: formData.label.trim(),
     });
   };
 
-  // Filtre les comptes pour le débit
-  const debitAccounts = accounts.filter(acc => 
-    acc.type !== 'revenu' && acc.type !== 'capital'
-  );
-
-  // Filtre les comptes pour le crédit
-  const creditAccounts = accounts.filter(acc => 
-    acc.type !== 'depense'
-  );
+  const debitOptions = debitAccounts.map(account => (
+    <option key={account.id} value={account.id}>
+      {account.name} ({accountTypeLabel(account.type)})
+    </option>
+  ));
+  const creditOptions = creditAccounts.map(account => (
+    <option key={account.id} value={account.id}>
+      {account.name} ({accountTypeLabel(account.type)})
+    </option>
+  ));
 
   return (
-    <form onSubmit={handleSubmit} className="transaction-form">
-      <h3>{transaction?.id ? 'Modifier la Transaction' : 'Nouvelle Transaction'}</h3>
-      <p className="form-description"><strong>Montants en EUROS</strong></p>
-
+    <div className="transaction-form">
       {errors.sameAccount && (
-        <div className="error-message">{errors.sameAccount}</div>
+        <p className="error-message" role="alert">{errors.sameAccount}</p>
       )}
-
-      <div className="form-grid">
-        <div className="form-group">
-          <label>Date</label>
-          <input
-            type="date"
-            value={formData.date}
-            onChange={(e) => handleChange('date', e.target.value)}
-            required
-          />
-        </div>
-
-        <div className="form-group">
-          <label>Libellé</label>
-          <input
-            type="text"
-            value={formData.label}
-            onChange={(e) => handleChange('label', e.target.value)}
-            placeholder="Description de la transaction"
-          />
-          {errors.label && <span className="error">{errors.label}</span>}
-        </div>
-
-        <div className="form-group">
-          <label>Montant (€)</label>
-          <input
-            type="number"
-            value={formData.amount}
-            onChange={(e) => handleChange('amount', parseFloat(e.target.value) || 0)}
-            step="0.01"
-            min="0"
-          />
-          {errors.amount && <span className="error">{errors.amount}</span>}
-        </div>
-
-        <div className="form-group">
-          <label>Compte Débit</label>
-          <select
-            value={formData.debitAccountId}
-            onChange={(e) => handleChange('debitAccountId', e.target.value)}
-          >
-            <option value="">-- Sélectionnez --</option>
-            {debitAccounts.map(account => (
-              <option key={account.id} value={account.id}>
-                {account.name} ({account.type})
-              </option>
-            ))}
-          </select>
-          {errors.debitAccountId && <span className="error">{errors.debitAccountId}</span>}
-        </div>
-
-        <div className="form-group">
-          <label>Catégorie Débit (optionnel)</label>
-          <select
-            value={formData.debitCategoryId || ''}
-            onChange={(e) => handleChange('debitCategoryId', e.target.value || undefined)}
-          >
-            <option value="">-- Aucune --</option>
-            {categories.map(category => (
-              <option key={category.id} value={category.id}>
-                {category.icon} {category.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="form-group">
-          <label>Compte Crédit</label>
-          <select
-            value={formData.creditAccountId}
-            onChange={(e) => handleChange('creditAccountId', e.target.value)}
-          >
-            <option value="">-- Sélectionnez --</option>
-            {creditAccounts.map(account => (
-              <option key={account.id} value={account.id}>
-                {account.name} ({account.type})
-              </option>
-            ))}
-          </select>
-          {errors.creditAccountId && <span className="error">{errors.creditAccountId}</span>}
-        </div>
-
-        <div className="form-group">
-          <label>Catégorie Crédit (optionnel)</label>
-          <select
-            value={formData.creditCategoryId || ''}
-            onChange={(e) => handleChange('creditCategoryId', e.target.value || undefined)}
-          >
-            <option value="">-- Aucune --</option>
-            {categories.map(category => (
-              <option key={category.id} value={category.id}>
-                {category.icon} {category.name}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="form-group">
+        <label htmlFor="tx-date">Date</label>
+        <input
+          id="tx-date"
+          type="date"
+          value={formData.date}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setField('date', e.target.value)}
+        />
       </div>
-
+      <div className="form-group">
+        <label htmlFor="tx-label">Libellé</label>
+        <input
+          id="tx-label"
+          type="text"
+          value={formData.label}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setField('label', e.target.value)}
+          placeholder="Ex : Courses du samedi"
+        />
+        {errors.label && <p className="error-message" role="alert">{errors.label}</p>}
+      </div>
+      <div className="form-group">
+        <label htmlFor="tx-amount">Montant (€)</label>
+        <input
+          id="tx-amount"
+          type="text"
+          inputMode="decimal"
+          value={formData.amount}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setField('amount', e.target.value)}
+          placeholder="Ex : 42,50"
+        />
+        {errors.amount && <p className="error-message" role="alert">{errors.amount}</p>}
+      </div>
+      <div className="form-group">
+        <label htmlFor="tx-debit-account">Compte débité (d où vient l argent)</label>
+        <select
+          id="tx-debit-account"
+          value={formData.debitAccountId}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setField('debitAccountId', e.target.value)}
+        >
+          <option value="">— Choisir —</option>
+          {debitOptions}
+        </select>
+        {errors.debit && <p className="error-message" role="alert">{errors.debit}</p>}
+      </div>
+      <div className="form-group">
+        <label htmlFor="tx-debit-category">Catégorie de dépense</label>
+        <select
+          id="tx-debit-category"
+          value={formData.debitCategoryId || ''}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setField('debitCategoryId', e.target.value || undefined)}
+        >
+          <option value="">Sans catégorie</option>
+          {categories.map(category => (
+            <option key={category.id} value={category.id}>
+              {category.icon} {category.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="form-group">
+        <label htmlFor="tx-credit-account">Compte crédité (où va l argent)</label>
+        <select
+          id="tx-credit-account"
+          value={formData.creditAccountId}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setField('creditAccountId', e.target.value)}
+        >
+          <option value="">— Choisir —</option>
+          {creditOptions}
+        </select>
+        {errors.credit && <p className="error-message" role="alert">{errors.credit}</p>}
+      </div>
+      <div className="form-group">
+        <label htmlFor="tx-credit-category">Catégorie de revenu</label>
+        <select
+          id="tx-credit-category"
+          value={formData.creditCategoryId || ''}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setField('creditCategoryId', e.target.value || undefined)}
+        >
+          <option value="">Sans catégorie</option>
+          {categories.map(category => (
+            <option key={category.id} value={category.id}>
+              {category.icon} {category.name}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="form-actions">
-        <button type="button" onClick={onCancel} className="btn-secondary">
-          Annuler
-        </button>
-        <button type="submit" className="btn-primary">
-          {transaction?.id ? 'Enregistrer' : 'Ajouter'}
+        <button onClick={onCancel} className="btn-secondary">Annuler</button>
+        <button onClick={handleSubmit} className="btn-primary">
+          {transaction?.id ? 'Enregistrer' : 'Ajouter la transaction'}
         </button>
       </div>
-    </form>
+    </div>
   );
 };
 

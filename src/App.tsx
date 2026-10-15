@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useBudget } from './hooks/useBudget';
 import type { Transaction, Account, Category } from './types/budget';
 import Dashboard from './components/Dashboard';
@@ -13,7 +13,11 @@ import Modal from './components/Modal';
 import './App.css';
 
 // Types pour les modales
+type MonthOption = { value: string; label: string };
 type ModalType = 'transaction' | 'doubleEntry' | 'account' | 'category' | 'batchForm' | null;
+
+// Duree d affichage d un toast (ms) : assez long pour lire, assez court pour ne pas gêner.
+const TOAST_DURATION_MS = 2600;
 
 const App: React.FC = () => {
   const {
@@ -46,6 +50,17 @@ const App: React.FC = () => {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
 
+  // Toast : petit message de confirmation, discret et annonce aux lecteurs d ecran.
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
+  const showToast = (message: string) => {
+    setToast(message);
+    if (toastTimer.current !== null) {
+      clearTimeout(toastTimer.current);
+    }
+    toastTimer.current = setTimeout(() => setToast(null), TOAST_DURATION_MS);
+  };
+
   // Calcule le résumé mensuel
   const monthlySummary = useMemo(() => {
     return getMonthlySummary(currentMonth);
@@ -67,7 +82,7 @@ const App: React.FC = () => {
   };
 
   // Ouvre la modale de transaction
-  const openTransactionModal = (transaction?: Partial<Transaction>) => {
+  const openTransactionModal = (transaction: Partial<Transaction> | undefined = undefined) => {
     setEditingTransaction(transaction || null);
     setActiveModal('transaction');
   };
@@ -78,13 +93,13 @@ const App: React.FC = () => {
   };
 
   // Ouvre la modale de compte
-  const openAccountModal = (account?: Partial<Account>) => {
+  const openAccountModal = (account: Partial<Account> | undefined = undefined) => {
     setEditingAccount(account || null);
     setActiveModal('account');
   };
 
   // Ouvre la modale de catégorie
-  const openCategoryModal = (category?: Partial<Category>) => {
+  const openCategoryModal = (category: Partial<Category> | undefined = undefined) => {
     setEditingCategory(category || null);
     setActiveModal('category');
   };
@@ -94,12 +109,14 @@ const App: React.FC = () => {
     setActiveModal('batchForm');
   };
 
-  // Soumet une transaction
+  // Soumet une transaction (avec retour visuel)
   const handleSubmitTransaction = (transactionData: Omit<Transaction, 'id'>) => {
     if (editingTransaction?.id) {
       updateTransaction(editingTransaction.id, transactionData);
+      showToast('Transaction modifiée ✓');
     } else {
       addTransaction(transactionData);
+      showToast('Transaction ajoutée ✓');
     }
     setActiveModal(null);
     setEditingTransaction(null);
@@ -111,8 +128,8 @@ const App: React.FC = () => {
     creditAccountId: string,
     amount: number,
     label: string,
-    debitCategoryId?: string,
-    creditCategoryId?: string
+    debitCategoryId: string | undefined = undefined,
+    creditCategoryId: string | undefined = undefined
   ) => {
     createDoubleEntryTransaction(
       debitAccountId,
@@ -122,6 +139,7 @@ const App: React.FC = () => {
       debitCategoryId,
       creditCategoryId
     );
+    showToast('Entrée double créée ✓');
     setActiveModal(null);
   };
 
@@ -129,8 +147,10 @@ const App: React.FC = () => {
   const handleSubmitAccount = (accountData: Omit<Account, 'id' | 'balance'>) => {
     if (editingAccount?.id) {
       updateAccount(editingAccount.id, accountData);
+      showToast('Compte modifié ✓');
     } else {
       addAccount(accountData);
+      showToast('Compte ajouté ✓');
     }
     setActiveModal(null);
     setEditingAccount(null);
@@ -142,22 +162,51 @@ const App: React.FC = () => {
       // Pour l'instant, on ne peut pas modifier une catégorie existante
     } else {
       addCategory(categoryData);
+      showToast('Catégorie ajoutée ✓');
     }
     setActiveModal(null);
     setEditingCategory(null);
   };
 
-  // Soumet un lot
+  // Soumet un lot : il nait en brouillon, comme il se doit.
   const handleSubmitBatch = (name: string) => {
     createBatch(name);
+    showToast(`Lot « ${name} » créé en brouillon ✓`);
     setActiveModal(null);
+  };
+
+  // Confirme un lot : les transactions deviennent effectives.
+  const handleConfirmBatch = (batchId: string) => {
+    const batch = data.batches.find(b => b.id === batchId);
+    confirmBatch(batchId);
+    showToast(`Lot confirmé : « ${batch?.name || batchId} »`);
+  };
+
+  // Annule un lot
+  const handleCancelBatch = (batchId: string) => {
+    const batch = data.batches.find(b => b.id === batchId);
+    cancelBatch(batchId);
+    showToast(`Lot annulé : « ${batch?.name || batchId} »`);
+  };
+
+  // Supprime un lot
+  const handleDeleteBatch = (batchId: string) => {
+    const batch = data.batches.find(b => b.id === batchId);
+    deleteBatch(batchId);
+    showToast(`Lot supprimé : « ${batch?.name || batchId} »`);
+  };
+
+  // Supprime une transaction
+  const handleDeleteTransaction = (id: string) => {
+    deleteTransaction(id);
+    showToast('Transaction supprimée');
   };
 
   // Génère les options de mois
   const monthOptions = useMemo(() => {
-    const options: { value: string; label: string }[] = [];
+    const options: MonthOption[] = [];
     const now = new Date();
-    
+
     for (let i = -6; i <= 6; i++) {
       const date = new Date(now);
       date.setMonth(now.getMonth() + i);
@@ -165,7 +214,7 @@ const App: React.FC = () => {
       const label = date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
       options.push({ value: month, label });
     }
-    
+
     return options;
   }, []);
 
@@ -174,13 +223,14 @@ const App: React.FC = () => {
       {/* En-tête */}
       <header className="app-header">
         <h1>💰 BudgetGwen</h1>
-        <p>Gestion budgétaire avec méthode double entrée - Montants en EUROS</p>
+        <p>Gestion budgétaire à double entrée, en euros</p>
       </header>
 
       {/* Barre de navigation */}
       <nav className="app-nav">
         <div className="nav-section">
-          <select value={currentMonth} onChange={handleMonthChange}>
+          <label htmlFor="month-select">Mois affiché</label>
+          <select id="month-select" value={currentMonth} onChange={handleMonthChange}>
             {monthOptions.map(option => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -193,19 +243,20 @@ const App: React.FC = () => {
             + Transaction
           </button>
           <button onClick={openDoubleEntryModal} className="btn-primary">
-            ⚖️ Double Entrée
+            ⚖️ Double entrée
           </button>
           <button onClick={openBatchFormModal} className="btn-primary">
-            + Lot
+            + Nouveau lot
           </button>
         </div>
       </nav>
 
       {/* Dashboard */}
       <Dashboard
-        monthlySummary={monthlySummary as any}
+        monthlySummary={monthlySummary}
         accounts={data.accounts}
         overallBalance={overallBalance}
+        categories={data.categories}
         onViewDetails={(section) => {
           console.log('View details:', section);
         }}
@@ -213,26 +264,26 @@ const App: React.FC = () => {
 
       {/* Liste des Transactions */}
       <section className="app-section">
-        <h2>📋 Transactions du Mois</h2>
+        <h2>📋 Transactions du mois</h2>
         <TransactionList
           transactions={monthlyTransactions}
           accounts={data.accounts}
           categories={data.categories}
           onEdit={openTransactionModal}
-          onDelete={deleteTransaction}
+          onDelete={handleDeleteTransaction}
         />
       </section>
 
       {/* Liste des Lots */}
       {data.batches.length > 0 && (
         <section className="app-section">
-          <h2>📦 Lots de Transactions</h2>
+          <h2>📦 Lots de transactions</h2>
           <BatchList
             batches={data.batches}
             onSelect={(batch) => console.log('Selected batch:', batch)}
-            onConfirm={confirmBatch}
-            onCancel={cancelBatch}
-            onDelete={deleteBatch}
+            onConfirm={handleConfirmBatch}
+            onCancel={handleCancelBatch}
+            onDelete={handleDeleteBatch}
           />
         </section>
       )}
@@ -246,7 +297,7 @@ const App: React.FC = () => {
           onDelete={deleteAccount}
         />
         <button onClick={() => openAccountModal()} className="btn-small">
-          + Ajouter un Compte
+          + Ajouter un compte
         </button>
       </section>
 
@@ -259,12 +310,11 @@ const App: React.FC = () => {
           onDelete={deleteCategory}
         />
         <button onClick={() => openCategoryModal()} className="btn-small">
-          + Ajouter une Catégorie
+          + Ajouter une catégorie
         </button>
       </section>
 
       {/* Modales */}
-      
       {/* Modale de Transaction */}
       <Modal
         isOpen={activeModal === 'transaction'}
@@ -272,7 +322,7 @@ const App: React.FC = () => {
           setActiveModal(null);
           setEditingTransaction(null);
         }}
-        title={editingTransaction?.id ? 'Modifier la Transaction' : 'Nouvelle Transaction'}
+        title={editingTransaction?.id ? 'Modifier la transaction' : 'Nouvelle transaction'}
       >
         <TransactionForm
           transaction={editingTransaction}
@@ -290,7 +340,7 @@ const App: React.FC = () => {
       <Modal
         isOpen={activeModal === 'doubleEntry'}
         onClose={() => setActiveModal(null)}
-        title="Nouvelle Entrée Double"
+        title="Nouvelle entrée double"
       >
         <DoubleEntryForm
           accounts={data.accounts}
@@ -307,28 +357,30 @@ const App: React.FC = () => {
           setActiveModal(null);
           setEditingAccount(null);
         }}
-        title={editingAccount?.id ? 'Modifier le Compte' : 'Nouveau Compte'}
+        title={editingAccount?.id ? 'Modifier le compte' : 'Nouveau compte'}
       >
         <div className="account-form">
           <div className="form-group">
-            <label>Nom</label>
+            <label htmlFor="account-name">Nom</label>
             <input
+              id="account-name"
               type="text"
               value={editingAccount?.name || ''}
-              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({ 
-                ...prev, 
-                name: e.target.value 
+              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({
+                ...prev,
+                name: e.target.value
               }))}
-              placeholder="Nom du compte"
+              placeholder="Ex : Compte Bancaire"
             />
           </div>
           <div className="form-group">
-            <label>Type</label>
+            <label htmlFor="account-type">Type</label>
             <select
+              id="account-type"
               value={editingAccount?.type || 'actif'}
-              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({ 
-                ...prev, 
-                type: e.target.value as Account['type'] 
+              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({
+                ...prev,
+                type: e.target.value as Account['type']
               }))}
             >
               <option value="actif">Actif</option>
@@ -339,13 +391,14 @@ const App: React.FC = () => {
             </select>
           </div>
           <div className="form-group">
-            <label>Couleur</label>
+            <label htmlFor="account-color">Couleur</label>
             <input
+              id="account-color"
               type="color"
               value={editingAccount?.color || '#4CAF50'}
-              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({ 
-                ...prev, 
-                color: e.target.value 
+              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({
+                ...prev,
+                color: e.target.value
               }))}
             />
           </div>
@@ -376,41 +429,44 @@ const App: React.FC = () => {
           setActiveModal(null);
           setEditingCategory(null);
         }}
-        title={editingCategory?.id ? 'Modifier la Catégorie' : 'Nouvelle Catégorie'}
+        title={editingCategory?.id ? 'Modifier la catégorie' : 'Nouvelle catégorie'}
       >
         <div className="category-form">
           <div className="form-group">
-            <label>Nom</label>
+            <label htmlFor="category-name">Nom</label>
             <input
+              id="category-name"
               type="text"
               value={editingCategory?.name || ''}
-              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({ 
-                ...prev, 
-                name: e.target.value 
+              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({
+                ...prev,
+                name: e.target.value
               }))}
-              placeholder="Nom de la catégorie"
+              placeholder="Ex : Nourriture"
             />
           </div>
           <div className="form-group">
-            <label>Icône</label>
+            <label htmlFor="category-icon">Icône</label>
             <input
+              id="category-icon"
               type="text"
               value={editingCategory?.icon || '🏷️'}
-              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({ 
-                ...prev, 
-                icon: e.target.value 
+              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({
+                ...prev,
+                icon: e.target.value
               }))}
               placeholder="Icône emoji"
             />
           </div>
           <div className="form-group">
-            <label>Couleur</label>
+            <label htmlFor="category-color">Couleur</label>
             <input
+              id="category-color"
               type="color"
               value={editingCategory?.color || '#FF9800'}
-              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({ 
-                ...prev, 
-                color: e.target.value 
+              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({
+                ...prev,
+                color: e.target.value
               }))}
             />
           </div>
@@ -438,7 +494,7 @@ const App: React.FC = () => {
       <Modal
         isOpen={activeModal === 'batchForm'}
         onClose={() => setActiveModal(null)}
-        title="Nouveau Lot"
+        title="Nouveau lot"
       >
         <BatchForm
           onSubmit={handleSubmitBatch}
@@ -446,10 +502,17 @@ const App: React.FC = () => {
         />
       </Modal>
 
+      {/* Toast de confirmation */}
+      {toast && (
+        <div className="toast" role="status" aria-live="polite">
+          {toast}
+        </div>
+      )}
+
       {/* Pied de page */}
       <footer className="app-footer">
-        <p>BudgetGwen - Outil de gestion budgétaire avec méthode double entrée</p>
-        <p>Données sauvegardées localement dans votre navigateur (localStorage: budgetgwen.v1.data)</p>
+        <p>BudgetGwen — outil de gestion budgétaire à double entrée</p>
+        <p>Données sauvegardées localement dans votre navigateur</p>
       </footer>
     </div>
   );

@@ -5,54 +5,39 @@ interface BatchFormProps {
   onCancel: () => void;
 }
 
-export const BatchForm: React.FC<BatchFormProps> = ({ onSubmit, onCancel }) => {
+const BatchForm = ({ onSubmit, onCancel }: BatchFormProps) => {
   const [name, setName] = useState('');
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [error, setError] = useState('');
 
-  const validate = () => {
-    const newErrors: Record<string, string> = {};
-
-    if (!name.trim()) {
-      newErrors.name = 'Le nom est obligatoire';
+  const handleSubmit = () => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError('Le lot a besoin d un nom.');
+      return;
     }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validate()) return;
-
-    onSubmit(name);
-    setName('');
+    onSubmit(trimmed);
   };
 
   return (
-    <form onSubmit={handleSubmit} className="batch-form">
-      <h3>Nouveau Lot</h3>
-
+    <div className="batch-form">
       <div className="form-group">
-        <label>Nom du Lot</label>
+        <label htmlFor="batch-name">Nom du lot</label>
         <input
+          id="batch-name"
           type="text"
           value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Nom du lot de transactions"
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
+          placeholder="Ex : Courses du samedi"
         />
-        {errors.name && <span className="error">{errors.name}</span>}
       </div>
-
+      {error && (
+        <p className="error-message" role="alert">{error}</p>
+      )}
       <div className="form-actions">
-        <button type="button" onClick={onCancel} className="btn-secondary">
-          Annuler
-        </button>
-        <button type="submit" className="btn-primary">
-          Créer le Lot
-        </button>
+        <button onClick={onCancel} className="btn-secondary">Annuler</button>
+        <button onClick={handleSubmit} className="btn-primary">Créer le lot</button>
       </div>
-    </form>
+    </div>
   );
 };
 
