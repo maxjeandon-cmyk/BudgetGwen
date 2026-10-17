@@ -140,6 +140,21 @@ check('verrou — solde negatif ecrit dans l autre sens', app.includes('pendingO
 check('verrou — edition d un compte existant : solde ignore', app.includes('le solde se gere par les transactions'));
 
 // ============================================================
+// Verrous : comptes tampons masques au Dashboard
+// ============================================================
+
+// « Salaire » (type revenu) et « Ouverture » (contrepartie des soldes
+// initiaux) simulent une entree d argent : ce sont des coulisses, pas des
+// comptes reels. Le Dashboard ne montre que les vrais comptes de Gwen.
+// Les listes de gestion (Comptes, Transactions, formulaires) gardent
+// TOUS les comptes : on a besoin des coulisses pour jouer dessus.
+check('verrou — liste dashboardAccounts filtree dans App', app.includes('dashboardAccounts'));
+check('verrou — comptes de revenu masques au Dashboard', app.includes("a.type !== 'revenu' && !(a.name === OPENING_ACCOUNT_NAME"));
+check('verrou — compte Ouverture masque au Dashboard', app.includes('a.name === OPENING_ACCOUNT_NAME && a.type === \'passif\''));
+check('verrou — Dashboard recoit la liste filtree', app.includes('accounts={dashboardAccounts}'));
+check('verrou — listes de gestion : tous les comptes conserves', app.includes('accounts={data.accounts}'));
+
+// ============================================================
 // Etage 2 : suite dynamique sur le vrai hook
 // ============================================================
 

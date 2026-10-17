@@ -149,6 +149,16 @@ const App: React.FC = () => {
     return getOverallBalance();
   }, [getOverallBalance]);
 
+  // Comptes montres au Dashboard : les vrais comptes de Gwen. Les comptes
+  // tampons qui simulent une entree d argent — les comptes de revenu comme
+  // « Salaire », et la contrepartie « Ouverture » des soldes initiaux —
+  // restent en coulisses : ils sont la machinerie, pas les acteurs.
+  const dashboardAccounts = useMemo(() => {
+    return data.accounts.filter(
+      a => a.type !== 'revenu' && !(a.name === OPENING_ACCOUNT_NAME && a.type === 'passif')
+    );
+  }, [data.accounts]);
+
   // Filtre les transactions du mois
   const monthlyTransactions = useMemo(() => {
     return getTransactionsByMonth(currentMonth);
@@ -380,7 +390,7 @@ const App: React.FC = () => {
       {/* Dashboard */}
       <Dashboard
         monthlySummary={monthlySummary}
-        accounts={data.accounts}
+        accounts={dashboardAccounts}
         overallBalance={overallBalance}
         categories={data.categories}
       />
