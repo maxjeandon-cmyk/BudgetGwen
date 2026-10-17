@@ -29,7 +29,8 @@ const DoubleEntryForm = ({ accounts, categories, onSubmit, onCancel }: DoubleEnt
 
   // Double entree : le debit et le credit sont deux faces de la meme operation.
   const debitAccounts = accounts.filter(a => a.type !== 'revenu' && a.type !== 'capital');
-  const creditAccounts = accounts.filter(a => a.type !== 'depense');
+  // Crediter un compte de depense est legitime (argent utilise, remboursement).
+  const creditAccounts = accounts;
 
   const handleSubmit = () => {
     const next = { ...errors, label: '', amount: '', debit: '', credit: '', sameAccount: '' };

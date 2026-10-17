@@ -39,8 +39,10 @@ const TransactionForm = ({ transaction, accounts, categories, onSubmit, onCancel
 
   // Comptes eligibles au debit : tout sauf les flux de revenus et de capital.
   const debitAccounts = accounts.filter(a => a.type !== 'revenu' && a.type !== 'capital');
-  // Comptes eligibles au credit : tout sauf les comptes de depense.
-  const creditAccounts = accounts.filter(a => a.type !== 'depense');
+  // Comptes eligibles au credit : tous, y compris les depenses.
+  // Crediter un compte de depense est legitime : l argent utilise
+  // (remboursement, ajustement, sortie directe) atterrit sur la depense.
+  const creditAccounts = accounts;
 
   const handleSubmit = () => {
     const next = { ...errors, label: '', amount: '', debit: '', credit: '', sameAccount: '' };
