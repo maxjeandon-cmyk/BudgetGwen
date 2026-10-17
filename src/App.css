@@ -657,6 +657,17 @@ button[disabled]:active {
   font-weight: 600;
 }
 
+/* Petite explication de contexte en haut des formulaires modeles. */
+.form-hint {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent-deep) 25%, var(--border));
+  color: var(--text);
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
 .transaction-form,
 .double-entry-form,
 .account-form,

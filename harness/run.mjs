@@ -77,7 +77,7 @@ check('statique — progressbar avec nom accessible (aria-label)', dashboard.inc
 check('statique — progressbar avec aria-valuenow', dashboard.includes('aria-valuenow'));
 
 // Mois dynamiques et validation des noms vides.
-check('statique — selecteur de mois construit depuis les transactions', app.includes('firstDate') && app.includes('monthOptions'));
+check('statique — selecteur de mois construit depuis les transactions', app.includes('monthOptions') && (app.includes('firstDate') || app.includes('lastMonth')));
 check('statique — nom de compte vide refuse (trim)', app.includes('editingAccount?.name?.trim()'));
 check('statique — nom de categorie vide refuse (trim)', app.includes('editingCategory?.name?.trim()'));
 check('statique — focus visible style', css.includes(':focus-visible'));
@@ -100,6 +100,24 @@ check('verrou — DoubleEntryForm : crédit = tous les comptes', deForm.includes
 // Le debit garde ses garde-fous : ni revenu ni capital au debit.
 check('verrou — debit sans revenu ni capital (TransactionForm)', txForm.includes("a.type !== 'revenu' && a.type !== 'capital'"));
 check('verrou — debit sans revenu ni capital (DoubleEntryForm)', deForm.includes("a.type !== 'revenu' && a.type !== 'capital'"));
+
+// ============================================================
+// Verrous : boutons Revenus / Depenses separes (decision produit)
+// ============================================================
+
+// La saisie se fait via deux boutons distincts, plus un mode qui
+// pre-remplit le formulaire dans le bon sens comptable :
+// - Revenus  : credit sur le compte de revenu (compte par le hook) ;
+// - Depenses : debit du compte de depense + credit de son compte,
+//   avec date differee possible (suivie dans le Dashboard).
+check('verrou — bouton « + Revenus » present', app.includes("+ Revenus"));
+check('verrou — bouton « − Dépenses » present', app.includes("− Dépenses"));
+check('verrou — ancien bouton « + Transaction » disparu', !app.includes('+ Transaction'));
+check('verrou — mode income pre-remplit le credit sur un compte de revenu', txForm.includes("accounts.find(a => a.type === 'revenu')"));
+check('verrou — mode expense pre-remplit le debit sur un compte de depense', txForm.includes("accounts.find(a => a.type === 'depense')"));
+check('verrou — mode expense suggere la date differee', txForm.includes('Sortie différée'));
+check('verrou — selecteur de mois etendu aux mois futurs (depenses differees)', app.includes('lastMonth'));
+check('verrou — style .form-hint defini', css.includes('.form-hint'));
 
 // ============================================================
 // Etage 2 : suite dynamique sur le vrai hook

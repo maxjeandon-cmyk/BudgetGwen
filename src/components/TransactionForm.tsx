@@ -6,6 +6,8 @@ interface TransactionFormProps {
   transaction: Partial<Transaction> | null;
   accounts: Account[];
   categories: Category[];
+  /** Mode du formulaire : 'income' (entree d argent) ou 'expense' (sortie). */
+  mode?: 'income' | 'expense';
   onSubmit: (transaction: Omit<Transaction, 'id'>) => void;
   onCancel: () => void;
 }
@@ -20,12 +22,26 @@ const parseAmount = (raw: string | number | undefined): number => {
   return parseFloat(String(raw || '').replace(',', '.'));
 };
 
-const TransactionForm = ({ transaction, accounts, categories, onSubmit, onCancel }: TransactionFormProps) => {
+const TransactionForm = ({ transaction, accounts, categories, mode, onSubmit, onCancel }: TransactionFormProps) => {
+  // Pre-remplissage selon le mode, coherent avec la semantique du hook figé :
+  // - income  : on credite un compte de REVENU (ex. Salaire) — c est ainsi
+  //   que le hook compte l entree dans le resume mensuel.
+  // - expense : on DEBITE le compte de depense et on credite son compte —
+  //   sens classique compte par le hook.
+  const defaultDebit =
+    mode === 'expense'
+      ? (accounts.find(a => a.type === 'depense')?.id || '')
+      : '';
+  const defaultCredit =
+    mode === 'income'
+      ? (accounts.find(a => a.type === 'revenu')?.id || '')
+      : (mode === 'expense' ? (accounts.find(a => a.type === 'actif')?.id || '') : '');
+
   const [formData, setFormData] = useState<Omit<Transaction, 'id'>>({
     date: transaction?.date || todayISO(),
-    debitAccountId: transaction?.debitAccountId || '',
+    debitAccountId: transaction?.debitAccountId || defaultDebit,
     debitCategoryId: transaction?.debitCategoryId,
-    creditAccountId: transaction?.creditAccountId || '',
+    creditAccountId: transaction?.creditAccountId || defaultCredit,
     creditCategoryId: transaction?.creditCategoryId,
     amount: transaction?.amount !== undefined ? transaction.amount : ('' as string | number),
     label: transaction?.label || '',
@@ -83,6 +99,12 @@ const TransactionForm = ({ transaction, accounts, categories, onSubmit, onCancel
     <div className="transaction-form">
       {errors.sameAccount && (
         <p className="error-message" role="alert">{errors.sameAccount}</p>
+      )}
+      {mode === 'income' && !transaction?.id && (
+        <p className="form-hint">💰 L'argent entre : créditez le compte de revenu (ex. Salaire) et débitez la source.</p>
+      )}
+      {mode === 'expense' && !transaction?.id && (
+        <p className="form-hint">🧾 L'argent sort : le compte « Dépenses » est débité, votre compte est crédité. Sortie différée ? Choisissez simplement une date future — elle sera suivie dans le mois correspondant du Dashboard.</p>
       )}
       <div className="form-group">
         <label htmlFor="tx-date">Date</label>
@@ -173,7 +195,7 @@ const TransactionForm = ({ transaction, accounts, categories, onSubmit, onCancel
       <div className="form-actions">
         <button onClick={onCancel} className="btn-secondary">Annuler</button>
         <button onClick={handleSubmit} className="btn-primary">
-          {transaction?.id ? 'Enregistrer' : 'Ajouter la transaction'}
+          {transaction?.id ? 'Enregistrer' : (mode === 'income' ? 'Ajouter le revenu' : mode === 'expense' ? 'Ajouter la dépense' : 'Ajouter la transaction')}
         </button>
       </div>
     </div>

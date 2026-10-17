@@ -38,6 +38,8 @@ const App: React.FC = () => {
 
   // État pour les modales
   const [activeModal, setActiveModal] = useState<ModalType>(null);
+  // Mode du formulaire de transaction : revenu ou depense (null = edition neutre).
+  const [txMode, setTxMode] = useState<'income' | 'expense' | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Partial<Transaction> | null>(null);
   const [editingAccount, setEditingAccount] = useState<Partial<Account> | null>(null);
   const [editingCategory, setEditingCategory] = useState<Partial<Category> | null>(null);
@@ -86,9 +88,11 @@ const App: React.FC = () => {
     setCurrentMonth(e.target.value);
   };
 
-  // Ouvre la modale de transaction
-  const openTransactionModal = (transaction: Partial<Transaction> | undefined = undefined) => {
+  // Ouvre la modale de transaction. En creation, le mode ('income'/'expense')
+  // pre-remplit le formulaire dans le bon sens ; en edition, mode neutre.
+  const openTransactionModal = (transaction: Partial<Transaction> | undefined = undefined, mode: 'income' | 'expense' | null = null) => {
     setEditingTransaction(transaction || null);
+    setTxMode(transaction?.id ? null : mode);
     setActiveModal('transaction');
   };
 
@@ -196,24 +200,31 @@ const App: React.FC = () => {
     showToast(`Catégorie supprimée : « ${category?.name || id} »`);
   };
 
-  // Mois affichables : de la premiere transaction a aujourd hui.
-  // La liste grandit avec l historique reel, ni plus ni moins.
+  // Mois affichables : de la premiere transaction a la derniere (y compris
+  // futures, pour les sorties differees), borne a aujourd hui au minimum.
   const monthOptions = useMemo(() => {
     const now = new Date();
     const current = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    const firstDate = data.transactions.reduce(
-      (min, t) => (t.date < min ? t.date : min),
-      '9999-12'
-    );
-    const start = firstDate.slice(0, 7) < current ? firstDate.slice(0, 7) : current;
+    // Premiere et derniere transaction connues (dates ISO : comparaison lexicographique fiable).
+    let first = '9999-12';
+    let last = '0000-01';
+    for (const t of data.transactions) {
+      if (t.date < first) first = t.date;
+      if (t.date > last) last = t.date;
+    }
+    const start = first.slice(0, 7) < current ? first.slice(0, 7) : current;
+    // Une depense differee pousse la borne haute au-dela du mois courant.
+    const lastMonth = last.slice(0, 7);
+    const end = lastMonth > current ? lastMonth : current;
 
     const options: MonthOption[] = [];
     let [y, m] = start.split('-').map(Number);
+    let [ey, em] = end.split('-').map(Number);
     // Garde-fou : au plus 1200 iterations si une date farfelue s invite.
     for (let guard = 0; guard < 1200; guard++) {
+      if (y > ey || (y === ey && m > em)) break;
       const month = `${y}-${String(m).padStart(2, '0')}`;
-      if (month > current) break;
       const date = new Date(y, m - 1, 1);
       options.push({
         value: month,
@@ -253,8 +264,11 @@ const App: React.FC = () => {
           </select>
         </div>
         <div className="nav-actions">
-          <button onClick={() => openTransactionModal()} className="btn-primary">
-            + Transaction
+          <button onClick={() => openTransactionModal(undefined, 'income')} className="btn-primary">
+            + Revenus
+          </button>
+          <button onClick={() => openTransactionModal(undefined, 'expense')} className="btn-primary">
+            − Dépenses
           </button>
         </div>
       </nav>
@@ -326,12 +340,13 @@ const App: React.FC = () => {
           setActiveModal(null);
           setEditingTransaction(null);
         }}
-        title={editingTransaction?.id ? 'Modifier la transaction' : 'Nouvelle transaction'}
+        title={editingTransaction?.id ? 'Modifier la transaction' : (txMode === 'income' ? 'Nouveau revenu' : txMode === 'expense' ? 'Nouvelle dépense' : 'Nouvelle transaction')}
       >
         <TransactionForm
           transaction={editingTransaction}
           accounts={data.accounts}
           categories={data.categories}
+          mode={txMode ?? undefined}
           onSubmit={handleSubmitTransaction}
           onCancel={() => {
             setActiveModal(null);
