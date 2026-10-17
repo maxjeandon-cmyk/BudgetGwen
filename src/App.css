@@ -323,6 +323,15 @@ button[disabled]:active {
   transition: width 0.3s ease;
 }
 
+/* Revenus en sauge, depenses en terracotta : l oeil lit avant le chiffre. */
+.chart-bar--expense {
+  background: linear-gradient(90deg, var(--expense), var(--primary-deep));
+}
+
+.chart-bar--income {
+  background: linear-gradient(90deg, var(--accent), var(--accent-deep));
+}
+
 .chart-bar-value {
   font-size: 0.82rem;
   color: var(--text-muted);

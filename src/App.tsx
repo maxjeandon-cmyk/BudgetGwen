@@ -154,11 +154,18 @@ const App: React.FC = () => {
 
   // Soumet un compte
   const handleSubmitAccount = (accountData: Omit<Account, 'id' | 'balance'>) => {
+    const name = accountData.name?.trim();
+    if (!name) {
+      // Un compte sans nom, c est un tiroir sans etiquette : on refuse doucement.
+      showToast('Le nom du compte ne peut pas être vide');
+      return;
+    }
+    const cleaned = { ...accountData, name };
     if (editingAccount?.id) {
-      updateAccount(editingAccount.id, accountData);
+      updateAccount(editingAccount.id, cleaned);
       showToast('Compte modifié ✓');
     } else {
-      addAccount(accountData);
+      addAccount(cleaned);
       showToast('Compte ajouté ✓');
     }
     setActiveModal(null);
@@ -167,10 +174,16 @@ const App: React.FC = () => {
 
   // Soumet une catégorie
   const handleSubmitCategory = (categoryData: Omit<Category, 'id'>) => {
+    const name = categoryData.name?.trim();
+    if (!name) {
+      showToast('Le nom de la catégorie ne peut pas être vide');
+      return;
+    }
+    const cleaned = { ...categoryData, name };
     if (editingCategory?.id) {
       // Pour l'instant, on ne peut pas modifier une catégorie existante
     } else {
-      addCategory(categoryData);
+      addCategory(cleaned);
       showToast('Catégorie ajoutée ✓');
     }
     setActiveModal(null);
@@ -225,21 +238,41 @@ const App: React.FC = () => {
     showToast(`Catégorie supprimée : « ${category?.name || id} »`);
   };
 
-  // Génère les options de mois
+  // Mois affichables : de la premiere transaction a aujourd hui.
+  // La liste grandit avec l historique reel, ni plus ni moins.
   const monthOptions = useMemo(() => {
-    const options: MonthOption[] = [];
     const now = new Date();
+    const current = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    for (let i = -6; i <= 6; i++) {
-      const date = new Date(now);
-      date.setMonth(now.getMonth() + i);
-      const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      const label = date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-      options.push({ value: month, label });
+    const firstDate = data.transactions.reduce(
+      (min, t) => (t.date < min ? t.date : min),
+      '9999-12'
+    );
+    const start = firstDate.slice(0, 7) < current ? firstDate.slice(0, 7) : current;
+
+    const options: MonthOption[] = [];
+    let [y, m] = start.split('-').map(Number);
+    // Garde-fou : au plus 1200 iterations si une date farfelue s invite.
+    for (let guard = 0; guard < 1200; guard++) {
+      const month = `${y}-${String(m).padStart(2, '0')}`;
+      if (month > current) break;
+      const date = new Date(y, m - 1, 1);
+      options.push({
+        value: month,
+        label: date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }),
+      });
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
+    }
+    if (options.length === 0) {
+      options.push({
+        value: current,
+        label: now.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }),
+      });
     }
 
     return options;
-  }, []);
+  }, [data.transactions]);
 
   return (
     <div className="app">
@@ -434,7 +467,7 @@ const App: React.FC = () => {
                 type: editingAccount?.type || 'actif',
                 color: editingAccount?.color || '#4CAF50',
               });
-            }} className="btn-primary">
+            }} className="btn-primary" disabled={!editingAccount?.name?.trim()}>
               {editingAccount?.id ? 'Enregistrer' : 'Créer'}
             </button>
           </div>
@@ -512,7 +545,7 @@ const App: React.FC = () => {
                 });
               }}
               className="btn-primary"
-              disabled={Boolean(editingCategory?.id)}
+              disabled={Boolean(editingCategory?.id) || !editingCategory?.name?.trim()}
               title={
                 editingCategory?.id
                   ? "Modification indisponible pour l'instant"

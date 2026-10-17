@@ -48,7 +48,7 @@ const Dashboard = ({
     .map(([id, value]) => ({ id, amount: value }));
   const totalIncomeBase = incomeEntries.reduce((sum, e) => sum + e.amount, 0);
 
-  const renderChart = (entries: { id: string; amount: number }[], base: number): React.ReactNode[] => {
+  const renderChart = (entries: { id: string; amount: number }[], base: number, barClass: string): React.ReactNode[] => {
     return entries.map(entry => {
       const part = base > 0 ? entry.amount / base : 0;
       const category = categories.find(c => c.id === entry.id);
@@ -58,11 +58,12 @@ const Dashboard = ({
           <div
             className="chart-bar-container"
             role="progressbar"
+            aria-label={`Part de ${categoryLabel(category)} : ${formatEUR(entry.amount)} (${formatPercent(part)})`}
             aria-valuenow={Math.round(part * 100)}
             aria-valuemin={0}
             aria-valuemax={100}
           >
-            <div className="chart-bar" style={{ width: `${Math.round(part * 100)}%` }}></div>
+            <div className={`chart-bar ${barClass}`} style={{ width: `${Math.round(part * 100)}%` }}></div>
           </div>
           <span className="chart-bar-value">
             {formatEUR(entry.amount)} ({formatPercent(part)})
@@ -105,7 +106,7 @@ const Dashboard = ({
           {expenseEntries.length === 0 ? (
             <p role="status">Aucune dépense ce mois-ci — c'est parfois bon signe.</p>
           ) : (
-            renderChart(expenseEntries, totalExpenseBase)
+            renderChart(expenseEntries, totalExpenseBase, 'chart-bar--expense')
           )}
         </div>
         <div className="chart-section">
@@ -113,7 +114,7 @@ const Dashboard = ({
           {incomeEntries.length === 0 ? (
             <p role="status">Aucun revenu ce mois-ci — patience, ça viendra.</p>
           ) : (
-            renderChart(incomeEntries, totalIncomeBase)
+            renderChart(incomeEntries, totalIncomeBase, 'chart-bar--income')
           )}
         </div>
       </div>
