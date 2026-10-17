@@ -7,14 +7,12 @@ import AccountList from './components/AccountList';
 import CategoryList from './components/CategoryList';
 import BatchList from './components/BatchList';
 import TransactionForm from './components/TransactionForm';
-import DoubleEntryForm from './components/DoubleEntryForm';
-import BatchForm from './components/BatchForm';
 import Modal from './components/Modal';
 import './App.css';
 
 // Types pour les modales
 type MonthOption = { value: string; label: string };
-type ModalType = 'transaction' | 'doubleEntry' | 'account' | 'category' | 'batchForm' | null;
+type ModalType = 'transaction' | 'account' | 'category' | null;
 
 // Duree d affichage d un toast (ms) : assez long pour lire, assez court pour ne pas gêner.
 const TOAST_DURATION_MS = 2600;
@@ -23,8 +21,6 @@ const App: React.FC = () => {
   const {
     data,
     addTransaction,
-    createDoubleEntryTransaction,
-    createBatch,
     confirmBatch,
     cancelBatch,
     deleteBatch,
@@ -96,11 +92,6 @@ const App: React.FC = () => {
     setActiveModal('transaction');
   };
 
-  // Ouvre la modale de double entrée
-  const openDoubleEntryModal = () => {
-    setActiveModal('doubleEntry');
-  };
-
   // Ouvre la modale de compte
   const openAccountModal = (account: Partial<Account> | undefined = undefined) => {
     setEditingAccount(account || null);
@@ -111,11 +102,6 @@ const App: React.FC = () => {
   const openCategoryModal = (category: Partial<Category> | undefined = undefined) => {
     setEditingCategory(category || null);
     setActiveModal('category');
-  };
-
-  // Ouvre la modale de création de lot
-  const openBatchFormModal = () => {
-    setActiveModal('batchForm');
   };
 
   // Soumet une transaction (avec retour visuel)
@@ -129,27 +115,6 @@ const App: React.FC = () => {
     }
     setActiveModal(null);
     setEditingTransaction(null);
-  };
-
-  // Soumet une entrée double
-  const handleSubmitDoubleEntry = (
-    debitAccountId: string,
-    creditAccountId: string,
-    amount: number,
-    label: string,
-    debitCategoryId: string | undefined = undefined,
-    creditCategoryId: string | undefined = undefined
-  ) => {
-    createDoubleEntryTransaction(
-      debitAccountId,
-      creditAccountId,
-      amount,
-      label,
-      debitCategoryId,
-      creditCategoryId
-    );
-    showToast('Entrée double créée ✓');
-    setActiveModal(null);
   };
 
   // Soumet un compte
@@ -188,13 +153,6 @@ const App: React.FC = () => {
     }
     setActiveModal(null);
     setEditingCategory(null);
-  };
-
-  // Soumet un lot : il nait en brouillon, comme il se doit.
-  const handleSubmitBatch = (name: string) => {
-    createBatch(name);
-    showToast(`Lot « ${name} » créé en brouillon ✓`);
-    setActiveModal(null);
   };
 
   // Confirme un lot : les transactions deviennent effectives.
@@ -298,12 +256,6 @@ const App: React.FC = () => {
           <button onClick={() => openTransactionModal()} className="btn-primary">
             + Transaction
           </button>
-          <button onClick={openDoubleEntryModal} className="btn-primary">
-            ⚖️ Double entrée
-          </button>
-          <button onClick={openBatchFormModal} className="btn-primary">
-            + Nouveau lot
-          </button>
         </div>
       </nav>
 
@@ -385,20 +337,6 @@ const App: React.FC = () => {
             setActiveModal(null);
             setEditingTransaction(null);
           }}
-        />
-      </Modal>
-
-      {/* Modale de Double Entrée */}
-      <Modal
-        isOpen={activeModal === 'doubleEntry'}
-        onClose={() => setActiveModal(null)}
-        title="Nouvelle entrée double"
-      >
-        <DoubleEntryForm
-          accounts={data.accounts}
-          categories={data.categories}
-          onSubmit={handleSubmitDoubleEntry}
-          onCancel={() => setActiveModal(null)}
         />
       </Modal>
 
@@ -556,18 +494,6 @@ const App: React.FC = () => {
             </button>
           </div>
         </div>
-      </Modal>
-
-      {/* Modale de Lot */}
-      <Modal
-        isOpen={activeModal === 'batchForm'}
-        onClose={() => setActiveModal(null)}
-        title="Nouveau lot"
-      >
-        <BatchForm
-          onSubmit={handleSubmitBatch}
-          onCancel={() => setActiveModal(null)}
-        />
       </Modal>
 
       {/* Toast de confirmation */}
