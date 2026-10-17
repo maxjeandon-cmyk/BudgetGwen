@@ -59,6 +59,9 @@ export const DEFAULT_ACCOUNTS: Account[] = [
   { id: 'savings', name: 'Épargne', type: 'actif', balance: 0, color: '#9C27B0' },
   { id: 'credit_card', name: 'Carte de crédit', type: 'passif', balance: 0, color: '#F44336' },
   { id: 'salary', name: 'Salaire', type: 'revenu', balance: 0, color: '#8BC34A' },
+  // Compte de depense par defaut : c est la que part l argent utilise.
+  // Sans lui, impossible de saisir une depense sans creer un compte d abord.
+  { id: 'expenses', name: 'Dépenses', type: 'depense', balance: 0, color: '#FF9800' },
 ];
 
 // Données par défaut pour les catégories
