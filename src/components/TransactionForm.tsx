@@ -106,6 +106,12 @@ const TransactionForm = ({ transaction, accounts, categories, mode, onSubmit, on
       {mode === 'expense' && !transaction?.id && (
         <p className="form-hint">🧾 L'argent sort : le compte « Dépenses » est débité, votre compte est crédité. Sortie différée ? Choisissez simplement une date future — elle sera suivie dans le mois correspondant du Dashboard.</p>
       )}
+      {!accounts.some(a => a.type === 'actif' || a.type === 'passif') && !transaction?.id && (
+        <p className="form-hint">
+          🌱 Vous n'avez pas encore de compte réel : créez-le d'abord dans « Comptes » (avec son
+          solde actuel) — il apparaîtra ici comme source ou destination de l'argent.
+        </p>
+      )}
       <div className="form-group">
         <label htmlFor="tx-date">Date</label>
         <input

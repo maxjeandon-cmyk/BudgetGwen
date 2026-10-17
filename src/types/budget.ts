@@ -52,15 +52,14 @@ export interface Batch {
   transactionIds: string[];
 }
 
-// Données par défaut pour les comptes
+// Données par défaut pour les comptes — départ minimal, demande de Gwen :
+// juste les deux coulisses qui font vivre la partie double. Les comptes
+// réels (Livret, Compte bancaire, Espèces…) seront ajoutés au fur et à
+// mesure, avec leur solde actuel saisi à la création.
+//   - Salaire (revenu) : tampon des entrées d'argent ;
+//   - Dépenses (depense) : tampon des sorties, où part l'argent utilisé.
 export const DEFAULT_ACCOUNTS: Account[] = [
-  { id: 'cash', name: 'Espèces', type: 'actif', balance: 0, color: '#4CAF50' },
-  { id: 'bank', name: 'Compte Bancaire', type: 'actif', balance: 0, color: '#2196F3' },
-  { id: 'savings', name: 'Épargne', type: 'actif', balance: 0, color: '#9C27B0' },
-  { id: 'credit_card', name: 'Carte de crédit', type: 'passif', balance: 0, color: '#F44336' },
   { id: 'salary', name: 'Salaire', type: 'revenu', balance: 0, color: '#8BC34A' },
-  // Compte de depense par defaut : c est la que part l argent utilise.
-  // Sans lui, impossible de saisir une depense sans creer un compte d abord.
   { id: 'expenses', name: 'Dépenses', type: 'depense', balance: 0, color: '#FF9800' },
 ];
 

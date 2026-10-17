@@ -41,6 +41,7 @@ const batchList = read('src/components/BatchList.tsx');
 const accountList = read('src/components/AccountList.tsx');
 const categoryList = read('src/components/CategoryList.tsx');
 const dashboard = read('src/components/Dashboard.tsx');
+const budgetTypes = read('src/types/budget.ts');
 
 // Plus un seul console.log dans le code produit.
 check('statique — aucun console.log dans App.tsx', !/console\.log/.test(app));
@@ -153,6 +154,22 @@ check('verrou — comptes de revenu masques au Dashboard', app.includes("a.type 
 check('verrou — compte Ouverture masque au Dashboard', app.includes('a.name === OPENING_ACCOUNT_NAME && a.type === \'passif\''));
 check('verrou — Dashboard recoit la liste filtree', app.includes('accounts={dashboardAccounts}'));
 check('verrou — listes de gestion : tous les comptes conserves', app.includes('accounts={data.accounts}'));
+
+// ============================================================
+// Verrous : depart minimal — seulement Salaire et Depenses
+// ============================================================
+
+// Gwen demarre avec les deux seules coulisses necessaires a la partie
+// double : « Salaire » (revenu) et « Depenses » (depense). Les comptes
+// reels seront ajoutes au fur et a mesure, avec leur solde actuel saisi
+// a la creation. Ce verrou empeche le retour des comptes de demo
+// (Especes, Compte Bancaire, Epargne, Carte de credit) dans les defauts.
+check('verrou — defauts : compte « Salaire » conservé', budgetTypes.includes("id: 'salary'"));
+check('verrou — defauts : compte « Dépenses » conservé', budgetTypes.includes("id: 'expenses'"));
+check('verrou — defauts : plus aucun compte de demo (cash/bank/savings/credit_card)',
+  !budgetTypes.includes("id: 'cash'") && !budgetTypes.includes("id: 'bank'") &&
+  !budgetTypes.includes("id: 'savings'") && !budgetTypes.includes("id: 'credit_card'"));
+check('verrou — TransactionForm guide vers « Comptes » sans compte réel', txForm.includes("créez-le d'abord dans « Comptes »"));
 
 // ============================================================
 // Etage 2 : suite dynamique sur le vrai hook
