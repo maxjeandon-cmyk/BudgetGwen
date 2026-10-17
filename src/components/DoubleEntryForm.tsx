@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { Account, Category } from '../types/budget';
+import { accountTypeLabel } from '../format';
 
 interface DoubleEntryFormProps {
   accounts: Account[];
@@ -9,122 +10,82 @@ interface DoubleEntryFormProps {
     creditAccountId: string,
     amount: number,
     label: string,
-    debitCategoryId?: string,
-    creditCategoryId?: string
+    debitCategoryId: string | undefined,
+    creditCategoryId: string | undefined
   ) => void;
   onCancel: () => void;
 }
 
-export const DoubleEntryForm: React.FC<DoubleEntryFormProps> = ({
-  accounts,
-  categories,
-  onSubmit,
-  onCancel,
-}) => {
+const parseAmount = (raw: string): number => parseFloat(raw.replace(',', '.'));
+
+const DoubleEntryForm = ({ accounts, categories, onSubmit, onCancel }: DoubleEntryFormProps) => {
   const [debitAccountId, setDebitAccountId] = useState('');
-  const [creditAccountId, setCreditAccountId] = useState('');
-  const [amount, setAmount] = useState(0);
+  const [debitCategoryId, setDebitCategoryId] = useState('');
+  const [amount, setAmount] = useState('');
   const [label, setLabel] = useState('');
-  const [debitCategoryId, setDebitCategoryId] = useState<string | undefined>();
-  const [creditCategoryId, setCreditCategoryId] = useState<string | undefined>();
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [creditAccountId, setCreditAccountId] = useState('');
+  const [creditCategoryId, setCreditCategoryId] = useState('');
+  const [errors, setErrors] = useState({ label: '', amount: '', debit: '', credit: '', sameAccount: '' });
 
-  const validate = () => {
-    const newErrors: Record<string, string> = {};
+  // Double entree : le debit et le credit sont deux faces de la meme operation.
+  const debitAccounts = accounts.filter(a => a.type !== 'revenu' && a.type !== 'capital');
+  const creditAccounts = accounts.filter(a => a.type !== 'depense');
 
-    if (!debitAccountId) {
-      newErrors.debitAccount = 'Le compte de débit est obligatoire';
+  const handleSubmit = () => {
+    const next = { ...errors, label: '', amount: '', debit: '', credit: '', sameAccount: '' };
+    if (!label.trim()) next.label = 'Le libellé est obligatoire.';
+    const parsed = parseAmount(amount);
+    if (isNaN(parsed) || parsed <= 0) next.amount = 'Le montant doit être supérieur à 0.';
+    if (!debitAccountId) next.debit = 'Choisissez le compte à débiter.';
+    if (!creditAccountId) next.credit = 'Choisissez le compte à créditer.';
+    if (debitAccountId && creditAccountId && debitAccountId === creditAccountId) {
+      next.sameAccount = 'Débit et crédit doivent être deux comptes différents.';
     }
-    if (!creditAccountId) {
-      newErrors.creditAccount = 'Le compte de crédit est obligatoire';
-    }
-    if (debitAccountId === creditAccountId) {
-      newErrors.sameAccount = 'Les comptes doivent être différents';
-    }
-    if (amount <= 0) {
-      newErrors.amount = 'Le montant doit être supérieur à 0';
-    }
-    if (!label.trim()) {
-      newErrors.label = 'Le libellé est obligatoire';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!validate()) return;
+    setErrors(next);
+    if (next.label || next.amount || next.debit || next.credit || next.sameAccount) return;
 
     onSubmit(
       debitAccountId,
       creditAccountId,
-      amount,
-      label,
-      debitCategoryId,
-      creditCategoryId
+      parsed,
+      label.trim(),
+      debitCategoryId || undefined,
+      creditCategoryId || undefined
     );
-
-    // Réinitialise le formulaire
-    setDebitAccountId('');
-    setCreditAccountId('');
-    setAmount(0);
-    setLabel('');
-    setDebitCategoryId(undefined);
-    setCreditCategoryId(undefined);
   };
 
-  // Filtre les comptes pour le débit (pas de type 'revenu' ou 'capital' en débit)
-  const debitAccounts = accounts.filter(acc => 
-    acc.type !== 'revenu' && acc.type !== 'capital'
-  );
-
-  // Filtre les comptes pour le crédit (pas de type 'depense' en crédit)
-  const creditAccounts = accounts.filter(acc => 
-    acc.type !== 'depense'
-  );
-
   return (
-    <form onSubmit={handleSubmit} className="double-entry-form">
-      <h3>⚖️ Nouvelle Entrée Double</h3>
-      <p className="form-description">
-        La méthode double entrée nécessite un débit et un crédit de montant égal.
-        <br />
-        <strong>Montants en EUROS</strong>
-      </p>
-
+    <div className="double-entry-form">
       {errors.sameAccount && (
-        <div className="error-message">{errors.sameAccount}</div>
+        <p className="error-message" role="alert">{errors.sameAccount}</p>
       )}
-
       <div className="double-entry-grid">
         <div className="entry-side debit-side">
-          <h4>📉 Débit</h4>
-          
+          <h4>Débit — d où vient l argent</h4>
           <div className="form-group">
-            <label>Compte</label>
+            <label htmlFor="de-debit-account">Compte débité</label>
             <select
+              id="de-debit-account"
               value={debitAccountId}
-              onChange={(e) => setDebitAccountId(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDebitAccountId(e.target.value)}
             >
-              <option value="">-- Sélectionnez un compte --</option>
+              <option value="">— Choisir —</option>
               {debitAccounts.map(account => (
                 <option key={account.id} value={account.id}>
-                  {account.name} ({account.type})
+                  {account.name} ({accountTypeLabel(account.type)})
                 </option>
               ))}
             </select>
-            {errors.debitAccount && <span className="error">{errors.debitAccount}</span>}
+            {errors.debit && <p className="error-message" role="alert">{errors.debit}</p>}
           </div>
-
           <div className="form-group">
-            <label>Catégorie (optionnel)</label>
+            <label htmlFor="de-debit-category">Catégorie</label>
             <select
-              value={debitCategoryId || ''}
-              onChange={(e) => setDebitCategoryId(e.target.value || undefined)}
+              id="de-debit-category"
+              value={debitCategoryId}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setDebitCategoryId(e.target.value)}
             >
-              <option value="">-- Aucune --</option>
+              <option value="">Sans catégorie</option>
               {categories.map(category => (
                 <option key={category.id} value={category.id}>
                   {category.icon} {category.name}
@@ -135,56 +96,47 @@ export const DoubleEntryForm: React.FC<DoubleEntryFormProps> = ({
         </div>
 
         <div className="entry-connector">
-          <div className="amount-input">
-            <label>Montant (€)</label>
+          <span className="connector-arrow">→</span>
+          <div className="form-group amount-input">
+            <label htmlFor="de-amount">Montant (€)</label>
             <input
-              type="number"
-              value={amount}
-              onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
-              step="0.01"
-              min="0"
-            />
-            {errors.amount && <span className="error">{errors.amount}</span>}
-          </div>
-          <div className="connector-arrow">↔️</div>
-          <div className="form-group">
-            <label>Libellé</label>
-            <input
+              id="de-amount"
               type="text"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="Description"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAmount(e.target.value)}
+              placeholder="Ex : 42,50"
             />
-            {errors.label && <span className="error">{errors.label}</span>}
+            {errors.amount && <p className="error-message" role="alert">{errors.amount}</p>}
           </div>
         </div>
 
         <div className="entry-side credit-side">
-          <h4>📈 Crédit</h4>
-          
+          <h4>Crédit — où va l argent</h4>
           <div className="form-group">
-            <label>Compte</label>
+            <label htmlFor="de-credit-account">Compte crédité</label>
             <select
+              id="de-credit-account"
               value={creditAccountId}
-              onChange={(e) => setCreditAccountId(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCreditAccountId(e.target.value)}
             >
-              <option value="">-- Sélectionnez un compte --</option>
+              <option value="">— Choisir —</option>
               {creditAccounts.map(account => (
                 <option key={account.id} value={account.id}>
-                  {account.name} ({account.type})
+                  {account.name} ({accountTypeLabel(account.type)})
                 </option>
               ))}
             </select>
-            {errors.creditAccount && <span className="error">{errors.creditAccount}</span>}
+            {errors.credit && <p className="error-message" role="alert">{errors.credit}</p>}
           </div>
-
           <div className="form-group">
-            <label>Catégorie (optionnel)</label>
+            <label htmlFor="de-credit-category">Catégorie</label>
             <select
-              value={creditCategoryId || ''}
-              onChange={(e) => setCreditCategoryId(e.target.value || undefined)}
+              id="de-credit-category"
+              value={creditCategoryId}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCreditCategoryId(e.target.value)}
             >
-              <option value="">-- Aucune --</option>
+              <option value="">Sans catégorie</option>
               {categories.map(category => (
                 <option key={category.id} value={category.id}>
                   {category.icon} {category.name}
@@ -194,16 +146,22 @@ export const DoubleEntryForm: React.FC<DoubleEntryFormProps> = ({
           </div>
         </div>
       </div>
-
-      <div className="form-actions">
-        <button type="button" onClick={onCancel} className="btn-secondary">
-          Annuler
-        </button>
-        <button type="submit" className="btn-primary">
-          Créer l'Entrée Double
-        </button>
+      <div className="form-group">
+        <label htmlFor="de-label">Libellé</label>
+        <input
+          id="de-label"
+          type="text"
+          value={label}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLabel(e.target.value)}
+          placeholder="Ex : Virement épargne"
+        />
+        {errors.label && <p className="error-message" role="alert">{errors.label}</p>}
       </div>
-    </form>
+      <div className="form-actions">
+        <button onClick={onCancel} className="btn-secondary">Annuler</button>
+        <button onClick={handleSubmit} className="btn-primary">Créer l entrée double</button>
+      </div>
+    </div>
   );
 };
 

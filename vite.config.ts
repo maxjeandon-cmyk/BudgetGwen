@@ -4,6 +4,9 @@ import path from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // GitHub Pages sert l app sous /BudgetGwen/ : les chemins d assets
+  // doivent etre relatifs a cette racine, pas a la racine du domaine.
+  base: '/BudgetGwen/',
   plugins: [react()],
   build: {
     rollupOptions: {

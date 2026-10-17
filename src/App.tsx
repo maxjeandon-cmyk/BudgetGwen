@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useBudget } from './hooks/useBudget';
 import type { Transaction, Account, Category } from './types/budget';
 import Dashboard from './components/Dashboard';
@@ -13,7 +13,11 @@ import Modal from './components/Modal';
 import './App.css';
 
 // Types pour les modales
+type MonthOption = { value: string; label: string };
 type ModalType = 'transaction' | 'doubleEntry' | 'account' | 'category' | 'batchForm' | null;
+
+// Duree d affichage d un toast (ms) : assez long pour lire, assez court pour ne pas gêner.
+const TOAST_DURATION_MS = 2600;
 
 const App: React.FC = () => {
   const {
@@ -46,6 +50,26 @@ const App: React.FC = () => {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
 
+  // Toast : petit message de confirmation, discret et annonce aux lecteurs d ecran.
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number | null>(null);
+  const showToast = (message: string) => {
+    setToast(message);
+    if (toastTimer.current !== null) {
+      clearTimeout(toastTimer.current);
+    }
+    toastTimer.current = setTimeout(() => setToast(null), TOAST_DURATION_MS);
+  };
+
+  // Nettoyage du minuteur au demontage : pas de toast fantome ni de fuite.
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current !== null) {
+        clearTimeout(toastTimer.current);
+      }
+    };
+  }, []);
+
   // Calcule le résumé mensuel
   const monthlySummary = useMemo(() => {
     return getMonthlySummary(currentMonth);
@@ -67,7 +91,7 @@ const App: React.FC = () => {
   };
 
   // Ouvre la modale de transaction
-  const openTransactionModal = (transaction?: Partial<Transaction>) => {
+  const openTransactionModal = (transaction: Partial<Transaction> | undefined = undefined) => {
     setEditingTransaction(transaction || null);
     setActiveModal('transaction');
   };
@@ -78,13 +102,13 @@ const App: React.FC = () => {
   };
 
   // Ouvre la modale de compte
-  const openAccountModal = (account?: Partial<Account>) => {
+  const openAccountModal = (account: Partial<Account> | undefined = undefined) => {
     setEditingAccount(account || null);
     setActiveModal('account');
   };
 
   // Ouvre la modale de catégorie
-  const openCategoryModal = (category?: Partial<Category>) => {
+  const openCategoryModal = (category: Partial<Category> | undefined = undefined) => {
     setEditingCategory(category || null);
     setActiveModal('category');
   };
@@ -94,12 +118,14 @@ const App: React.FC = () => {
     setActiveModal('batchForm');
   };
 
-  // Soumet une transaction
+  // Soumet une transaction (avec retour visuel)
   const handleSubmitTransaction = (transactionData: Omit<Transaction, 'id'>) => {
     if (editingTransaction?.id) {
       updateTransaction(editingTransaction.id, transactionData);
+      showToast('Transaction modifiée ✓');
     } else {
       addTransaction(transactionData);
+      showToast('Transaction ajoutée ✓');
     }
     setActiveModal(null);
     setEditingTransaction(null);
@@ -111,8 +137,8 @@ const App: React.FC = () => {
     creditAccountId: string,
     amount: number,
     label: string,
-    debitCategoryId?: string,
-    creditCategoryId?: string
+    debitCategoryId: string | undefined = undefined,
+    creditCategoryId: string | undefined = undefined
   ) => {
     createDoubleEntryTransaction(
       debitAccountId,
@@ -122,15 +148,25 @@ const App: React.FC = () => {
       debitCategoryId,
       creditCategoryId
     );
+    showToast('Entrée double créée ✓');
     setActiveModal(null);
   };
 
   // Soumet un compte
   const handleSubmitAccount = (accountData: Omit<Account, 'id' | 'balance'>) => {
+    const name = accountData.name?.trim();
+    if (!name) {
+      // Un compte sans nom, c est un tiroir sans etiquette : on refuse doucement.
+      showToast('Le nom du compte ne peut pas être vide');
+      return;
+    }
+    const cleaned = { ...accountData, name };
     if (editingAccount?.id) {
-      updateAccount(editingAccount.id, accountData);
+      updateAccount(editingAccount.id, cleaned);
+      showToast('Compte modifié ✓');
     } else {
-      addAccount(accountData);
+      addAccount(cleaned);
+      showToast('Compte ajouté ✓');
     }
     setActiveModal(null);
     setEditingAccount(null);
@@ -138,49 +174,119 @@ const App: React.FC = () => {
 
   // Soumet une catégorie
   const handleSubmitCategory = (categoryData: Omit<Category, 'id'>) => {
+    const name = categoryData.name?.trim();
+    if (!name) {
+      showToast('Le nom de la catégorie ne peut pas être vide');
+      return;
+    }
+    const cleaned = { ...categoryData, name };
     if (editingCategory?.id) {
       // Pour l'instant, on ne peut pas modifier une catégorie existante
     } else {
-      addCategory(categoryData);
+      addCategory(cleaned);
+      showToast('Catégorie ajoutée ✓');
     }
     setActiveModal(null);
     setEditingCategory(null);
   };
 
-  // Soumet un lot
+  // Soumet un lot : il nait en brouillon, comme il se doit.
   const handleSubmitBatch = (name: string) => {
     createBatch(name);
+    showToast(`Lot « ${name} » créé en brouillon ✓`);
     setActiveModal(null);
   };
 
-  // Génère les options de mois
+  // Confirme un lot : les transactions deviennent effectives.
+  const handleConfirmBatch = (batchId: string) => {
+    const batch = data.batches.find(b => b.id === batchId);
+    confirmBatch(batchId);
+    showToast(`Lot confirmé : « ${batch?.name || batchId} »`);
+  };
+
+  // Annule un lot
+  const handleCancelBatch = (batchId: string) => {
+    const batch = data.batches.find(b => b.id === batchId);
+    cancelBatch(batchId);
+    showToast(`Lot annulé : « ${batch?.name || batchId} »`);
+  };
+
+  // Supprime un lot
+  const handleDeleteBatch = (batchId: string) => {
+    const batch = data.batches.find(b => b.id === batchId);
+    deleteBatch(batchId);
+    showToast(`Lot supprimé : « ${batch?.name || batchId} »`);
+  };
+
+  // Supprime une transaction
+  const handleDeleteTransaction = (id: string) => {
+    deleteTransaction(id);
+    showToast('Transaction supprimée');
+  };
+
+  // Supprime un compte (avec retour visuel, comme le reste)
+  const handleDeleteAccount = (id: string) => {
+    const account = data.accounts.find(a => a.id === id);
+    deleteAccount(id);
+    showToast(`Compte supprimé : « ${account?.name || id} »`);
+  };
+
+  // Supprime une categorie (avec retour visuel, comme le reste)
+  const handleDeleteCategory = (id: string) => {
+    const category = data.categories.find(c => c.id === id);
+    deleteCategory(id);
+    showToast(`Catégorie supprimée : « ${category?.name || id} »`);
+  };
+
+  // Mois affichables : de la premiere transaction a aujourd hui.
+  // La liste grandit avec l historique reel, ni plus ni moins.
   const monthOptions = useMemo(() => {
-    const options: { value: string; label: string }[] = [];
     const now = new Date();
-    
-    for (let i = -6; i <= 6; i++) {
-      const date = new Date(now);
-      date.setMonth(now.getMonth() + i);
-      const month = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      const label = date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-      options.push({ value: month, label });
+    const current = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const firstDate = data.transactions.reduce(
+      (min, t) => (t.date < min ? t.date : min),
+      '9999-12'
+    );
+    const start = firstDate.slice(0, 7) < current ? firstDate.slice(0, 7) : current;
+
+    const options: MonthOption[] = [];
+    let [y, m] = start.split('-').map(Number);
+    // Garde-fou : au plus 1200 iterations si une date farfelue s invite.
+    for (let guard = 0; guard < 1200; guard++) {
+      const month = `${y}-${String(m).padStart(2, '0')}`;
+      if (month > current) break;
+      const date = new Date(y, m - 1, 1);
+      options.push({
+        value: month,
+        label: date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }),
+      });
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
     }
-    
+    if (options.length === 0) {
+      options.push({
+        value: current,
+        label: now.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }),
+      });
+    }
+
     return options;
-  }, []);
+  }, [data.transactions]);
 
   return (
     <div className="app">
       {/* En-tête */}
       <header className="app-header">
         <h1>💰 BudgetGwen</h1>
-        <p>Gestion budgétaire avec méthode double entrée - Montants en EUROS</p>
+        <p>Gestion budgétaire à double entrée, en euros</p>
       </header>
 
       {/* Barre de navigation */}
       <nav className="app-nav">
         <div className="nav-section">
-          <select value={currentMonth} onChange={handleMonthChange}>
+          <label htmlFor="month-select">Mois affiché</label>
+          <select id="month-select" value={currentMonth} onChange={handleMonthChange}>
             {monthOptions.map(option => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -193,46 +299,43 @@ const App: React.FC = () => {
             + Transaction
           </button>
           <button onClick={openDoubleEntryModal} className="btn-primary">
-            ⚖️ Double Entrée
+            ⚖️ Double entrée
           </button>
           <button onClick={openBatchFormModal} className="btn-primary">
-            + Lot
+            + Nouveau lot
           </button>
         </div>
       </nav>
 
       {/* Dashboard */}
       <Dashboard
-        monthlySummary={monthlySummary as any}
+        monthlySummary={monthlySummary}
         accounts={data.accounts}
         overallBalance={overallBalance}
-        onViewDetails={(section) => {
-          console.log('View details:', section);
-        }}
+        categories={data.categories}
       />
 
       {/* Liste des Transactions */}
       <section className="app-section">
-        <h2>📋 Transactions du Mois</h2>
+        <h2>📋 Transactions du mois</h2>
         <TransactionList
           transactions={monthlyTransactions}
           accounts={data.accounts}
           categories={data.categories}
           onEdit={openTransactionModal}
-          onDelete={deleteTransaction}
+          onDelete={handleDeleteTransaction}
         />
       </section>
 
       {/* Liste des Lots */}
       {data.batches.length > 0 && (
         <section className="app-section">
-          <h2>📦 Lots de Transactions</h2>
+          <h2>📦 Lots de transactions</h2>
           <BatchList
             batches={data.batches}
-            onSelect={(batch) => console.log('Selected batch:', batch)}
-            onConfirm={confirmBatch}
-            onCancel={cancelBatch}
-            onDelete={deleteBatch}
+            onConfirm={handleConfirmBatch}
+            onCancel={handleCancelBatch}
+            onDelete={handleDeleteBatch}
           />
         </section>
       )}
@@ -243,10 +346,10 @@ const App: React.FC = () => {
         <AccountList
           accounts={data.accounts}
           onEdit={openAccountModal}
-          onDelete={deleteAccount}
+          onDelete={handleDeleteAccount}
         />
         <button onClick={() => openAccountModal()} className="btn-small">
-          + Ajouter un Compte
+          + Ajouter un compte
         </button>
       </section>
 
@@ -256,15 +359,14 @@ const App: React.FC = () => {
         <CategoryList
           categories={data.categories}
           onEdit={openCategoryModal}
-          onDelete={deleteCategory}
+          onDelete={handleDeleteCategory}
         />
         <button onClick={() => openCategoryModal()} className="btn-small">
-          + Ajouter une Catégorie
+          + Ajouter une catégorie
         </button>
       </section>
 
       {/* Modales */}
-      
       {/* Modale de Transaction */}
       <Modal
         isOpen={activeModal === 'transaction'}
@@ -272,7 +374,7 @@ const App: React.FC = () => {
           setActiveModal(null);
           setEditingTransaction(null);
         }}
-        title={editingTransaction?.id ? 'Modifier la Transaction' : 'Nouvelle Transaction'}
+        title={editingTransaction?.id ? 'Modifier la transaction' : 'Nouvelle transaction'}
       >
         <TransactionForm
           transaction={editingTransaction}
@@ -290,7 +392,7 @@ const App: React.FC = () => {
       <Modal
         isOpen={activeModal === 'doubleEntry'}
         onClose={() => setActiveModal(null)}
-        title="Nouvelle Entrée Double"
+        title="Nouvelle entrée double"
       >
         <DoubleEntryForm
           accounts={data.accounts}
@@ -307,28 +409,30 @@ const App: React.FC = () => {
           setActiveModal(null);
           setEditingAccount(null);
         }}
-        title={editingAccount?.id ? 'Modifier le Compte' : 'Nouveau Compte'}
+        title={editingAccount?.id ? 'Modifier le compte' : 'Nouveau compte'}
       >
         <div className="account-form">
           <div className="form-group">
-            <label>Nom</label>
+            <label htmlFor="account-name">Nom</label>
             <input
+              id="account-name"
               type="text"
               value={editingAccount?.name || ''}
-              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({ 
-                ...prev, 
-                name: e.target.value 
+              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({
+                ...prev,
+                name: e.target.value
               }))}
-              placeholder="Nom du compte"
+              placeholder="Ex : Compte Bancaire"
             />
           </div>
           <div className="form-group">
-            <label>Type</label>
+            <label htmlFor="account-type">Type</label>
             <select
+              id="account-type"
               value={editingAccount?.type || 'actif'}
-              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({ 
-                ...prev, 
-                type: e.target.value as Account['type'] 
+              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({
+                ...prev,
+                type: e.target.value as Account['type']
               }))}
             >
               <option value="actif">Actif</option>
@@ -339,13 +443,14 @@ const App: React.FC = () => {
             </select>
           </div>
           <div className="form-group">
-            <label>Couleur</label>
+            <label htmlFor="account-color">Couleur</label>
             <input
+              id="account-color"
               type="color"
               value={editingAccount?.color || '#4CAF50'}
-              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({ 
-                ...prev, 
-                color: e.target.value 
+              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({
+                ...prev,
+                color: e.target.value
               }))}
             />
           </div>
@@ -362,7 +467,7 @@ const App: React.FC = () => {
                 type: editingAccount?.type || 'actif',
                 color: editingAccount?.color || '#4CAF50',
               });
-            }} className="btn-primary">
+            }} className="btn-primary" disabled={!editingAccount?.name?.trim()}>
               {editingAccount?.id ? 'Enregistrer' : 'Créer'}
             </button>
           </div>
@@ -376,41 +481,51 @@ const App: React.FC = () => {
           setActiveModal(null);
           setEditingCategory(null);
         }}
-        title={editingCategory?.id ? 'Modifier la Catégorie' : 'Nouvelle Catégorie'}
+        title={editingCategory?.id ? 'Catégorie existante' : 'Nouvelle catégorie'}
       >
         <div className="category-form">
+          {editingCategory?.id && (
+            <p className="error-message" role="alert">
+              La modification d'une catégorie n'est pas encore disponible : seul le
+              nom affiché est visible ici, rien ne sera enregistré. Vous pouvez
+              par contre la supprimer depuis la liste, ou en créer une nouvelle.
+            </p>
+          )}
           <div className="form-group">
-            <label>Nom</label>
+            <label htmlFor="category-name">Nom</label>
             <input
+              id="category-name"
               type="text"
               value={editingCategory?.name || ''}
-              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({ 
-                ...prev, 
-                name: e.target.value 
+              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({
+                ...prev,
+                name: e.target.value
               }))}
-              placeholder="Nom de la catégorie"
+              placeholder="Ex : Nourriture"
             />
           </div>
           <div className="form-group">
-            <label>Icône</label>
+            <label htmlFor="category-icon">Icône</label>
             <input
+              id="category-icon"
               type="text"
               value={editingCategory?.icon || '🏷️'}
-              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({ 
-                ...prev, 
-                icon: e.target.value 
+              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({
+                ...prev,
+                icon: e.target.value
               }))}
               placeholder="Icône emoji"
             />
           </div>
           <div className="form-group">
-            <label>Couleur</label>
+            <label htmlFor="category-color">Couleur</label>
             <input
+              id="category-color"
               type="color"
               value={editingCategory?.color || '#FF9800'}
-              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({ 
-                ...prev, 
-                color: e.target.value 
+              onChange={(e) => setEditingCategory((prev: Partial<Category> | null) => ({
+                ...prev,
+                color: e.target.value
               }))}
             />
           </div>
@@ -421,14 +536,23 @@ const App: React.FC = () => {
             }} className="btn-secondary">
               Annuler
             </button>
-            <button onClick={() => {
-              handleSubmitCategory({
-                name: editingCategory?.name || '',
-                icon: editingCategory?.icon || '🏷️',
-                color: editingCategory?.color || '#FF9800',
-              });
-            }} className="btn-primary">
-              {editingCategory?.id ? 'Enregistrer' : 'Créer'}
+            <button
+              onClick={() => {
+                handleSubmitCategory({
+                  name: editingCategory?.name || '',
+                  icon: editingCategory?.icon || '🏷️',
+                  color: editingCategory?.color || '#FF9800',
+                });
+              }}
+              className="btn-primary"
+              disabled={Boolean(editingCategory?.id) || !editingCategory?.name?.trim()}
+              title={
+                editingCategory?.id
+                  ? "Modification indisponible pour l'instant"
+                  : undefined
+              }
+            >
+              {editingCategory?.id ? 'Enregistrer (indisponible)' : 'Créer'}
             </button>
           </div>
         </div>
@@ -438,7 +562,7 @@ const App: React.FC = () => {
       <Modal
         isOpen={activeModal === 'batchForm'}
         onClose={() => setActiveModal(null)}
-        title="Nouveau Lot"
+        title="Nouveau lot"
       >
         <BatchForm
           onSubmit={handleSubmitBatch}
@@ -446,10 +570,17 @@ const App: React.FC = () => {
         />
       </Modal>
 
+      {/* Toast de confirmation */}
+      {toast && (
+        <div className="toast" role="status" aria-live="polite">
+          {toast}
+        </div>
+      )}
+
       {/* Pied de page */}
       <footer className="app-footer">
-        <p>BudgetGwen - Outil de gestion budgétaire avec méthode double entrée</p>
-        <p>Données sauvegardées localement dans votre navigateur (localStorage: budgetgwen.v1.data)</p>
+        <p>BudgetGwen — outil de gestion budgétaire à double entrée</p>
+        <p>Données sauvegardées localement dans votre navigateur</p>
       </footer>
     </div>
   );

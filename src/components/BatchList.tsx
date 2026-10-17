@@ -1,87 +1,69 @@
 import React from 'react';
 import type { Batch } from '../types/budget';
+import ConfirmButton from './ConfirmButton';
 
 interface BatchListProps {
   batches: Batch[];
-  onSelect: (batch: Batch) => void;
   onConfirm: (batchId: string) => void;
   onCancel: (batchId: string) => void;
   onDelete: (batchId: string) => void;
 }
 
-export const BatchList: React.FC<BatchListProps> = ({
-  batches,
-  onSelect,
-  onConfirm,
-  onCancel,
-  onDelete,
-}) => {
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'confirmed':
-        return '#4CAF50';
-      case 'cancelled':
-        return '#F44336';
-      default:
-        return '#FF9800';
-    }
-  };
+const STATUS_LABELS: Record<string, string> = {
+  draft: 'Brouillon',
+  confirmed: 'Confirmé',
+  cancelled: 'Annulé',
+};
 
-  const getStatusLabel = (status: string) => {
-    switch (status) {
-      case 'draft':
-        return 'Brouillon';
-      case 'confirmed':
-        return 'Confirmé';
-      case 'cancelled':
-        return 'Annulé';
-      default:
-        return status;
-    }
-  };
-
+const BatchList = ({ batches, onConfirm, onCancel, onDelete }: BatchListProps) => {
   return (
-    <div className="batch-list">
-      <h3>Lots de Transactions</h3>
-      <div className="batch-grid">
-        {batches.map(batch => (
-          <div
-            key={batch.id}
-            className="batch-card"
-            onClick={() => onSelect(batch)}
-            style={{ cursor: 'pointer' }}
-          >
-            <div className="batch-header">
-              <span className="batch-name">{batch.name}</span>
-              <span
-                className="batch-status"
-                style={{ color: getStatusColor(batch.status) }}
-              >
-                {getStatusLabel(batch.status)}
-              </span>
-            </div>
-            <div className="batch-info">
-              <span>{batch.transactionIds.length} transactions</span>
-              <span>ID: {batch.id.substring(0, 8)}...</span>
-            </div>
-            <div className="batch-actions">
-              {batch.status === 'draft' && (
-                <>
-                  <button onClick={(e) => { e.stopPropagation(); onConfirm(batch.id); }} className="btn-small">
-                    Confirmer
-                  </button>
-                  <button onClick={(e) => { e.stopPropagation(); onCancel(batch.id); }} className="btn-small btn-secondary">
-                    Annuler
-                  </button>
-                </>
-              )}
-              <button onClick={(e) => { e.stopPropagation(); onDelete(batch.id); }} className="btn-small btn-danger">
-                Supprimer
-              </button>
-            </div>
+    <div className="batch-grid">
+      {batches.map(batch => (
+        <div key={batch.id} className="batch-card">
+          <div className="batch-header">
+            <span className="batch-name">{batch.name}</span>
+            <span className={`status-badge status-${batch.status}`}>
+              {STATUS_LABELS[batch.status] || batch.status}
+            </span>
           </div>
-        ))}
-      </div>
+          <p className="batch-info">{batch.transactionIds.length} transactions</p>
+          <div className="batch-actions">
+            {batch.status === 'draft' && (
+              <button
+                className="btn-small"
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  onConfirm(batch.id);
+                }}
+                aria-label={`Confirmer le lot « ${batch.name} »`}
+              >
+                ✓ Confirmer
+              </button>
+            )}
+            {batch.status !== 'cancelled' && batch.status !== 'confirmed' && (
+              <button
+                className="btn-small"
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  onCancel(batch.id);
+                }}
+                aria-label={`Annuler le lot « ${batch.name} »`}
+              >
+                ⊘ Annuler
+              </button>
+            )}
+            <ConfirmButton
+              className="btn-small btn-danger"
+              stopPropagation
+              onConfirm={() => onDelete(batch.id)}
+              label={`Supprimer le lot « ${batch.name} » et ses ${batch.transactionIds.length} transactions`}
+              confirmText="⚠️ Recliquez : lot et transactions seront supprimés"
+            >
+              🗑️ Supprimer
+            </ConfirmButton>
+          </div>
+        </div>
+      ))}
     </div>
   );
 };
