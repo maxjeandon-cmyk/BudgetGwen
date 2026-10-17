@@ -84,6 +84,24 @@ check('statique — focus visible style', css.includes(':focus-visible'));
 check('statique — etat arme du bouton de confirmation style', css.includes('.btn-confirm-armed'));
 
 // ============================================================
+// Verrous comportementaux (decisions produit explicites)
+// ============================================================
+
+// Les comptes de DEPENSE doivent etre creditables dans les deux formulaires :
+// l argent utilise (remboursement, ajustement, sortie directe) peut
+// atterrir sur un compte de depense. Ce verrou evite que le filtre
+// historique (a.type !== 'depense') ne revienne par accident.
+const txForm = read('src/components/TransactionForm.tsx');
+const deForm = read('src/components/DoubleEntryForm.tsx');
+check('verrou — TransactionForm : comptes de dépense créditables', !txForm.includes("a.type !== 'depense'"));
+check('verrou — DoubleEntryForm : comptes de dépense créditables', !deForm.includes("a.type !== 'depense'"));
+check('verrou — TransactionForm : crédit = tous les comptes', txForm.includes('const creditAccounts = accounts;'));
+check('verrou — DoubleEntryForm : crédit = tous les comptes', deForm.includes('const creditAccounts = accounts;'));
+// Le debit garde ses garde-fous : ni revenu ni capital au debit.
+check('verrou — debit sans revenu ni capital (TransactionForm)', txForm.includes("a.type !== 'revenu' && a.type !== 'capital'"));
+check('verrou — debit sans revenu ni capital (DoubleEntryForm)', deForm.includes("a.type !== 'revenu' && a.type !== 'capital'"));
+
+// ============================================================
 // Etage 2 : suite dynamique sur le vrai hook
 // ============================================================
 
