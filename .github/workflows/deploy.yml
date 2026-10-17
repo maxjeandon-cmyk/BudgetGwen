@@ -24,13 +24,13 @@ jobs:
         with:
           node-version: 22
 
-      - name: Harnais de verification (87 assertions, sans dependance)
+      - name: "Harnais de verification (87 assertions, sans dependance)"
         run: node harness/run.mjs
 
-      - name: Installation des dependances (sans lock file : npm install, pas npm ci)
+      - name: "Installation des dependances (npm install, le depot n a pas de lock file)"
         run: npm install
 
-      - name: Build de production
+      - name: "Build de production"
         run: npm run build
 
       - uses: actions/upload-pages-artifact@v3
