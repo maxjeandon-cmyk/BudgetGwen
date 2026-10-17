@@ -14,6 +14,18 @@ import './App.css';
 type MonthOption = { value: string; label: string };
 type ModalType = 'transaction' | 'account' | 'category' | null;
 
+// Brouillon du formulaire de compte : le compte en cours d edition, plus le
+// champ « solde actuel » qui n existe qu a la creation (chaine libre,
+// virgule decimale acceptee a la francaise).
+type AccountDraft = Partial<Account> & { openingBalance?: string };
+
+// Compte d ouverture : la contrepartie en partie double des soldes initiaux.
+// Type passif choisi a dessein : face a un actif, la transaction d ouverture
+// est NEUTRE pour le resume mensuel du hook fige (ni revenu, ni depense) —
+// le mois ou l on cree ses comptes n affiche donc aucun fantome.
+const OPENING_ACCOUNT_NAME = 'Ouverture';
+const OPENING_ACCOUNT_COLOR = '#8D6E63';
+
 // Duree d affichage d un toast (ms) : assez long pour lire, assez court pour ne pas gêner.
 const TOAST_DURATION_MS = 2600;
 
@@ -41,7 +53,20 @@ const App: React.FC = () => {
   // Mode du formulaire de transaction : revenu ou depense (null = edition neutre).
   const [txMode, setTxMode] = useState<'income' | 'expense' | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Partial<Transaction> | null>(null);
-  const [editingAccount, setEditingAccount] = useState<Partial<Account> | null>(null);
+  const [editingAccount, setEditingAccount] = useState<AccountDraft | null>(null);
+  // Solde initial en attente : le hook fige cree les comptes a balance 0 et
+  // recalcule les soldes depuis les transactions. La seule facon honnete
+  // de donner un solde de depart est donc une transaction equilibree
+  // « Solde initial », ecrite des que le compte existe vraiment.
+  const [pendingOpening, setPendingOpening] = useState<{
+    name: string;
+    amount: number;
+    knownIds: string[];
+    openingId?: string;
+  } | null>(null);
+  // Garde StrictMode : les effets sont joues deux fois en dev, il ne faut
+  // ni deux comptes « Ouverture » ni deux transactions d ouverture.
+  const openingGuardRef = useRef<{ pending: object | null; ensured: boolean; done: boolean }>({ pending: null, ensured: false, done: false });
   const [editingCategory, setEditingCategory] = useState<Partial<Category> | null>(null);
   const [currentMonth, setCurrentMonth] = useState<string>(() => {
     const now = new Date();
@@ -67,6 +92,52 @@ const App: React.FC = () => {
       }
     };
   }, []);
+
+  // Ecrit la transaction « Solde initial » des que le nouveau compte existe
+  // (addAccount genere son id dans le hook : on ne le connait qu apres rendu).
+  // - solde positif : debit « Ouverture », credit du nouveau compte ;
+  // - solde negatif (ex : decouvert) : sens inverse.
+  // Le compte « Ouverture » est cree au besoin, une seule fois.
+  useEffect(() => {
+    if (!pendingOpening) return;
+    // Nouvelle demande : on rearme la garde (protection StrictMode).
+    if (openingGuardRef.current.pending !== pendingOpening) {
+      openingGuardRef.current = { pending: pendingOpening, ensured: false, done: false };
+    }
+    const guard = openingGuardRef.current;
+
+    // Le compte demande : celui qui n existait pas au moment de la soumission.
+    const target = data.accounts.find(
+      a => a.name === pendingOpening.name && !pendingOpening.knownIds.includes(a.id)
+    );
+    if (!target) return; // pas encore : le prochain rendu s en charge
+
+    // Le compte d ouverture, deja connu ou tout juste cree.
+    const opening = pendingOpening.openingId
+      ? data.accounts.find(a => a.id === pendingOpening.openingId)
+      : data.accounts.find(
+          a => a.type === 'passif' && a.name === OPENING_ACCOUNT_NAME && a.id !== target.id
+        );
+    if (!opening) {
+      if (guard.ensured) return; // deja demande : on attend le rendu suivant
+      guard.ensured = true;
+      addAccount({ name: OPENING_ACCOUNT_NAME, type: 'passif', color: OPENING_ACCOUNT_COLOR });
+      return;
+    }
+    if (guard.done) return;
+    guard.done = true;
+    const amount = Math.abs(pendingOpening.amount);
+    if (amount > 0) {
+      addTransaction({
+        date: new Date().toISOString().split('T')[0],
+        debitAccountId: pendingOpening.amount > 0 ? opening.id : target.id,
+        creditAccountId: pendingOpening.amount > 0 ? target.id : opening.id,
+        amount,
+        label: `Solde initial — ${target.name}`,
+      });
+    }
+    setPendingOpening(null);
+  }, [pendingOpening, data.accounts, addAccount, addTransaction]);
 
   // Calcule le résumé mensuel
   const monthlySummary = useMemo(() => {
@@ -122,19 +193,52 @@ const App: React.FC = () => {
   };
 
   // Soumet un compte
-  const handleSubmitAccount = (accountData: Omit<Account, 'id' | 'balance'>) => {
+  const handleSubmitAccount = (accountData: Omit<Account, 'id' | 'balance'> & { openingBalance?: string }) => {
     const name = accountData.name?.trim();
     if (!name) {
       // Un compte sans nom, c est un tiroir sans etiquette : on refuse doucement.
       showToast('Le nom du compte ne peut pas être vide');
       return;
     }
-    const cleaned = { ...accountData, name };
     if (editingAccount?.id) {
-      updateAccount(editingAccount.id, cleaned);
+      // Edition : metadonnees seulement — le solde se gere par les transactions.
+      updateAccount(editingAccount.id, { name, type: accountData.type, color: accountData.color });
       showToast('Compte modifié ✓');
+      setActiveModal(null);
+      setEditingAccount(null);
+      return;
+    }
+    // Creation : le solde actuel est facultatif (vide ou 0 = on part de zero).
+    // Reserve aux types actif/passif : sur un compte de flux (revenu,
+    // depense, capital), il fausserait le resume mensuel du hook.
+    const raw = (accountData.openingBalance ?? '').trim();
+    if (raw !== '' && accountData.type !== 'actif' && accountData.type !== 'passif') {
+      showToast('Le solde initial est réservé aux comptes de type Actif ou Passif');
+      return;
+    }
+    let opening = 0;
+    if (raw !== '') {
+      opening = parseFloat(raw.replace(',', '.'));
+      if (isNaN(opening)) {
+        showToast('Solde invalide — essayez par exemple 1250,40');
+        return;
+      }
+    }
+    addAccount({ name, type: accountData.type, color: accountData.color });
+    if (opening !== 0) {
+      // Le solde sera materialise par une transaction « Solde initial » des
+      // que le compte existe (voir useEffect pendingOpening ci-dessus).
+      const existingOpening = data.accounts.find(
+        a => a.type === 'passif' && a.name === OPENING_ACCOUNT_NAME
+      );
+      setPendingOpening({
+        name,
+        amount: opening,
+        knownIds: data.accounts.map(a => a.id),
+        openingId: existingOpening?.id,
+      });
+      showToast('Compte ajouté avec son solde ✓');
     } else {
-      addAccount(cleaned);
       showToast('Compte ajouté ✓');
     }
     setActiveModal(null);
@@ -371,7 +475,7 @@ const App: React.FC = () => {
               id="account-name"
               type="text"
               value={editingAccount?.name || ''}
-              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({
+              onChange={(e) => setEditingAccount((prev: AccountDraft | null) => ({
                 ...prev,
                 name: e.target.value
               }))}
@@ -383,7 +487,7 @@ const App: React.FC = () => {
             <select
               id="account-type"
               value={editingAccount?.type || 'actif'}
-              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({
+              onChange={(e) => setEditingAccount((prev: AccountDraft | null) => ({
                 ...prev,
                 type: e.target.value as Account['type']
               }))}
@@ -401,12 +505,33 @@ const App: React.FC = () => {
               id="account-color"
               type="color"
               value={editingAccount?.color || '#4CAF50'}
-              onChange={(e) => setEditingAccount((prev: Partial<Account> | null) => ({
+              onChange={(e) => setEditingAccount((prev: AccountDraft | null) => ({
                 ...prev,
                 color: e.target.value
               }))}
             />
           </div>
+          {!editingAccount?.id && ['actif', 'passif'].includes(editingAccount?.type || 'actif') && (
+            <div className="form-group">
+              <label htmlFor="account-opening">Solde actuel (€)</label>
+              <input
+                id="account-opening"
+                type="text"
+                inputMode="decimal"
+                value={editingAccount?.openingBalance ?? ''}
+                onChange={(e) => setEditingAccount((prev: AccountDraft | null) => ({
+                  ...prev,
+                  openingBalance: e.target.value
+                }))}
+                placeholder="Ex : 1250,40 — vide pour partir de zéro"
+              />
+              <p className="form-hint">
+                🌱 C'est ce que contient déjà le compte aujourd'hui. Il sera enregistré comme
+                une transaction « Solde initial », visible et modifiable dans la liste.
+                Négatif possible (ex : -300 pour un découvert).
+              </p>
+            </div>
+          )}
           <div className="form-actions">
             <button onClick={() => {
               setActiveModal(null);
@@ -419,6 +544,7 @@ const App: React.FC = () => {
                 name: editingAccount?.name || '',
                 type: editingAccount?.type || 'actif',
                 color: editingAccount?.color || '#4CAF50',
+                openingBalance: editingAccount?.openingBalance ?? '',
               });
             }} className="btn-primary" disabled={!editingAccount?.name?.trim()}>
               {editingAccount?.id ? 'Enregistrer' : 'Créer'}

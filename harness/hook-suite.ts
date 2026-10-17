@@ -174,11 +174,40 @@ const persisted = storage.get('budgetgwen.v1.data');
 eq('persistance — localStorage contient Livret B', persisted.includes('Livret B'), true);
 eq('persistance — localStorage contient le lot confirme', persisted.includes('"status":"confirmed"'), true);
 reset();
+setRerender(tick); // le stub met rerender a null au reset : on le rebranche
 tick(); // Remontage : le hook relit localStorage
 eq('rechargement — 7 transactions retrouvees', api.data.transactions.length, 7);
 eq('rechargement — solde bank -112,10 € retrouve', bal('bank'), -112.10);
 eq('rechargement — lot Courses confirme retrouve', api.data.batches.find(b => b.id === 'b1')?.status, 'confirmed');
 eq('rechargement — Livret B retrouve', api.data.accounts.some(a => a.name === 'Livret B'), true);
+
+// ===== 8. Solde initial : ouverture de compte equilibree =====
+// Decision produit : le solde saisi a la creation d un compte s ecrit
+// comme une transaction equilibree contre un compte d ouverture
+// « Ouverture » (passif). Face a un actif, le VRAI hook la compte
+// NI en revenu NI en depense : le mois de la creation n a aucun fantome.
+const balName = (n: string) => api.data.accounts.find(a => a.name === n)?.balance;
+const summaryBefore = summary();
+api.addAccount({ name: 'Ouverture', type: 'passif', color: '#8D6E63' });
+api.addAccount({ name: 'Livret C', type: 'actif', color: '#00bcd4' });
+const ouvId = api.data.accounts.find(a => a.name === 'Ouverture')?.id;
+const livCId = api.data.accounts.find(a => a.name === 'Livret C')?.id;
+api.addTransaction({ date: day(10), debitAccountId: ouvId, creditAccountId: livCId, amount: 1250.40, label: 'Solde initial — Livret C' });
+eq('ouverture — solde Livret C +1250,40 €', balName('Livret C'), 1250.40);
+eq('ouverture — solde Ouverture -1250,40 €', balName('Ouverture'), -1250.40);
+eq('ouverture — resume neutre : revenus inchanges', summary().totalIncome, summaryBefore.totalIncome);
+eq('ouverture — resume neutre : depenses inchangees', summary().totalExpense, summaryBefore.totalExpense);
+eq('ouverture — resume neutre : solde du mois inchange', summary().netBalance, summaryBefore.netBalance);
+eq('ouverture — solde global 2800,60 € (compte 2x : quirk connu, Lot 4)', api.getOverallBalance(), 2800.60);
+// Solde initial negatif (ex : decouvert) : meme mecanique, sens inverse.
+api.addAccount({ name: 'Découvert', type: 'actif', color: '#f44336' });
+const decId = api.data.accounts.find(a => a.name === 'Découvert')?.id;
+api.addTransaction({ date: day(10), debitAccountId: decId, creditAccountId: ouvId, amount: 300.00, label: 'Solde initial — Découvert' });
+eq('ouverture negative — solde Découvert -300,00 €', balName('Découvert'), -300.00);
+eq('ouverture negative — solde Ouverture -950,40 €', balName('Ouverture'), -950.40);
+eq('ouverture negative — depenses du mois toujours 149,90 €', summary().totalExpense, 149.90);
+eq('ouverture negative — solde global 2200,60 €', api.getOverallBalance(), 2200.60);
+eq('final — invariant partie double apres ouvertures', api.validateDoubleEntryInvariant(), true);
 
 // Sortie unique, consommee par run.mjs.
 console.log(JSON.stringify(results));

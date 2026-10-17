@@ -120,6 +120,26 @@ check('verrou — selecteur de mois etendu aux mois futurs (depenses differees)'
 check('verrou — style .form-hint defini', css.includes('.form-hint'));
 
 // ============================================================
+// Verrous : solde initial a la creation d un compte
+// ============================================================
+
+// Le hook fige cree toujours les comptes a balance 0 et recalcule les
+// soldes depuis les transactions. Le solde saisi est donc materialise
+// par une transaction « Solde initial » equilibree contre un compte
+// d ouverture « Ouverture » (passif) — neutre pour le resume mensuel :
+// ni revenu ni depense fantome le mois de la creation. Ces verrous
+// empechent la regression vers un solde pose en base (interdit par le
+// hook) ou une contrepartie qui fausserait le Dashboard.
+check('verrou — champ « Solde actuel » present (account-opening)', app.includes('account-opening'));
+check('verrou — champ reserve a la creation et aux types actif/passif', app.includes("['actif', 'passif'].includes(editingAccount?.type || 'actif')"));
+check('verrou — libelle « vide pour partir de zero » present', app.includes('vide pour partir de zéro'));
+check('verrou — transaction « Solde initial — » generee', app.includes('Solde initial — '));
+check('verrou — compte d ouverture « Ouverture » declare en passif', app.includes("OPENING_ACCOUNT_NAME = 'Ouverture'") && app.includes("type: 'passif'"));
+check('verrou — garde StrictMode contre le double effet', app.includes('openingGuardRef'));
+check('verrou — solde negatif ecrit dans l autre sens', app.includes('pendingOpening.amount > 0 ? opening.id : target.id'));
+check('verrou — edition d un compte existant : solde ignore', app.includes('le solde se gere par les transactions'));
+
+// ============================================================
 // Etage 2 : suite dynamique sur le vrai hook
 // ============================================================
 
