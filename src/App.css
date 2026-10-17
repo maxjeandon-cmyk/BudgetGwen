@@ -426,6 +426,55 @@ button[disabled]:active {
   border-radius: var(--radius-sm);
 }
 
+/* Mobile etroit : la grille 6 colonnes devient une carte lisible.
+   Chaque cellule affiche son libelle via data-label (::before). */
+@media (max-width: 559.98px) {
+  .transaction-header {
+    display: none;
+  }
+
+  .transaction-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 12px;
+  }
+
+  .transaction-row .transaction-label {
+    grid-column: 1 / -1;
+  }
+
+  .transaction-row .date-cell,
+  .transaction-row .account-cell,
+  .transaction-row .amount-cell {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    white-space: normal;
+  }
+
+  .transaction-row .date-cell::before,
+  .transaction-row .account-cell::before,
+  .transaction-row .amount-cell::before {
+    content: attr(data-label);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .transaction-row .amount-cell {
+    font-size: 1rem;
+  }
+
+  .transaction-row .actions-cell {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
+  }
+}
+
 /* ---------- Comptes & catégories ---------- */
 
 .account-grid,

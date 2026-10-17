@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useBudget } from './hooks/useBudget';
 import type { Transaction, Account, Category } from './types/budget';
 import Dashboard from './components/Dashboard';
@@ -60,6 +60,15 @@ const App: React.FC = () => {
     }
     toastTimer.current = setTimeout(() => setToast(null), TOAST_DURATION_MS);
   };
+
+  // Nettoyage du minuteur au demontage : pas de toast fantome ni de fuite.
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current !== null) {
+        clearTimeout(toastTimer.current);
+      }
+    };
+  }, []);
 
   // Calcule le résumé mensuel
   const monthlySummary = useMemo(() => {
@@ -202,6 +211,20 @@ const App: React.FC = () => {
     showToast('Transaction supprimée');
   };
 
+  // Supprime un compte (avec retour visuel, comme le reste)
+  const handleDeleteAccount = (id: string) => {
+    const account = data.accounts.find(a => a.id === id);
+    deleteAccount(id);
+    showToast(`Compte supprimé : « ${account?.name || id} »`);
+  };
+
+  // Supprime une categorie (avec retour visuel, comme le reste)
+  const handleDeleteCategory = (id: string) => {
+    const category = data.categories.find(c => c.id === id);
+    deleteCategory(id);
+    showToast(`Catégorie supprimée : « ${category?.name || id} »`);
+  };
+
   // Génère les options de mois
   const monthOptions = useMemo(() => {
     const options: MonthOption[] = [];
@@ -290,7 +313,7 @@ const App: React.FC = () => {
         <AccountList
           accounts={data.accounts}
           onEdit={openAccountModal}
-          onDelete={deleteAccount}
+          onDelete={handleDeleteAccount}
         />
         <button onClick={() => openAccountModal()} className="btn-small">
           + Ajouter un compte
@@ -303,7 +326,7 @@ const App: React.FC = () => {
         <CategoryList
           categories={data.categories}
           onEdit={openCategoryModal}
-          onDelete={deleteCategory}
+          onDelete={handleDeleteCategory}
         />
         <button onClick={() => openCategoryModal()} className="btn-small">
           + Ajouter une catégorie

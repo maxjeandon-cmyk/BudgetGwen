@@ -58,16 +58,16 @@ const TransactionList = ({
       </div>
       {sorted.map(transaction => (
         <div key={transaction.id} className="transaction-row">
-          <span className="date-cell">{formatDate(transaction.date)}</span>
+          <span className="date-cell" data-label="Date">{formatDate(transaction.date)}</span>
           <span className="transaction-label">
             {transaction.label}
             {transaction.batchId && (
               <span className="tx-draft-badge">En attente de lot</span>
             )}
           </span>
-          <span className="account-cell">{accountName(accounts, transaction.debitAccountId)}</span>
-          <span className="account-cell">{accountName(accounts, transaction.creditAccountId)}</span>
-          <span className="amount-cell">{formatEUR(transaction.amount)}</span>
+          <span className="account-cell" data-label="Débit">{accountName(accounts, transaction.debitAccountId)}</span>
+          <span className="account-cell" data-label="Crédit">{accountName(accounts, transaction.creditAccountId)}</span>
+          <span className="amount-cell" data-label="Montant">{formatEUR(transaction.amount)}</span>
           <span className="actions-cell">
             <button
               className="btn-icon"
