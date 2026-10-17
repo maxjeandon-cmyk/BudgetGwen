@@ -16,7 +16,6 @@ interface DashboardProps {
   accounts: Account[];
   overallBalance: number;
   categories?: Category[];
-  onViewDetails?: (section: string) => void;
 }
 
 // Libelle lisible d une categorie : « icone nom »

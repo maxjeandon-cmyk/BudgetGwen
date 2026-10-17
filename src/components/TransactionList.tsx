@@ -1,11 +1,13 @@
 import React from 'react';
 import type { Account, Category, Transaction } from '../types/budget';
 import { formatEUR } from '../format';
+import ConfirmButton from './ConfirmButton';
 
 interface TransactionListProps {
   transactions: Transaction[];
   accounts: Account[];
-  categories: Category[];
+  /** Categories recues d App pour compatibilite, non utilisees pour l instant. */
+  categories?: Category[];
   onEdit: (transaction: Partial<Transaction> | undefined) => void;
   onDelete: (id: string) => void;
 }
@@ -74,13 +76,14 @@ const TransactionList = ({
             >
               ✏️
             </button>
-            <button
+            <ConfirmButton
               className="btn-icon"
-              onClick={() => onDelete(transaction.id)}
-              aria-label={`Supprimer la transaction « ${transaction.label} »`}
+              onConfirm={() => onDelete(transaction.id)}
+              label={`Supprimer la transaction « ${transaction.label} »`}
+              confirmText="⚠️ Recliquez pour supprimer"
             >
               🗑️
-            </button>
+            </ConfirmButton>
           </span>
         </div>
       ))}

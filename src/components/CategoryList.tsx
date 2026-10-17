@@ -1,5 +1,6 @@
 import React from 'react';
 import type { Category } from '../types/budget';
+import ConfirmButton from './ConfirmButton';
 
 interface CategoryListProps {
   categories: Category[];
@@ -22,13 +23,14 @@ const CategoryList = ({ categories, onEdit, onDelete }: CategoryListProps) => {
             >
               ✏️
             </button>
-            <button
+            <ConfirmButton
               className="btn-icon"
-              onClick={() => onDelete(category.id)}
-              aria-label={`Supprimer la catégorie « ${category.name} »`}
+              onConfirm={() => onDelete(category.id)}
+              label={`Supprimer la catégorie « ${category.name} »`}
+              confirmText="⚠️ Recliquez pour supprimer"
             >
               🗑️
-            </button>
+            </ConfirmButton>
           </div>
         </div>
       ))}

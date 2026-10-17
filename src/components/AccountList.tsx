@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Account } from '../types/budget';
 import { formatEUR, accountTypeLabel } from '../format';
+import ConfirmButton from './ConfirmButton';
 
 interface AccountListProps {
   accounts: Account[];
@@ -24,13 +25,14 @@ const AccountList = ({ accounts, onEdit, onDelete }: AccountListProps) => {
             >
               ✏️
             </button>
-            <button
+            <ConfirmButton
               className="btn-icon"
-              onClick={() => onDelete(account.id)}
-              aria-label={`Supprimer le compte « ${account.name} »`}
+              onConfirm={() => onDelete(account.id)}
+              label={`Supprimer le compte « ${account.name} »`}
+              confirmText="⚠️ Recliquez pour supprimer"
             >
               🗑️
-            </button>
+            </ConfirmButton>
           </div>
         </div>
       ))}

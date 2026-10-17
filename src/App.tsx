@@ -257,9 +257,6 @@ const App: React.FC = () => {
         accounts={data.accounts}
         overallBalance={overallBalance}
         categories={data.categories}
-        onViewDetails={(section) => {
-          console.log('View details:', section);
-        }}
       />
 
       {/* Liste des Transactions */}
@@ -280,7 +277,6 @@ const App: React.FC = () => {
           <h2>📦 Lots de transactions</h2>
           <BatchList
             batches={data.batches}
-            onSelect={(batch) => console.log('Selected batch:', batch)}
             onConfirm={handleConfirmBatch}
             onCancel={handleCancelBatch}
             onDelete={handleDeleteBatch}
@@ -429,9 +425,16 @@ const App: React.FC = () => {
           setActiveModal(null);
           setEditingCategory(null);
         }}
-        title={editingCategory?.id ? 'Modifier la catégorie' : 'Nouvelle catégorie'}
+        title={editingCategory?.id ? 'Catégorie existante' : 'Nouvelle catégorie'}
       >
         <div className="category-form">
+          {editingCategory?.id && (
+            <p className="error-message" role="alert">
+              La modification d'une catégorie n'est pas encore disponible : seul le
+              nom affiché est visible ici, rien ne sera enregistré. Vous pouvez
+              par contre la supprimer depuis la liste, ou en créer une nouvelle.
+            </p>
+          )}
           <div className="form-group">
             <label htmlFor="category-name">Nom</label>
             <input
@@ -477,14 +480,23 @@ const App: React.FC = () => {
             }} className="btn-secondary">
               Annuler
             </button>
-            <button onClick={() => {
-              handleSubmitCategory({
-                name: editingCategory?.name || '',
-                icon: editingCategory?.icon || '🏷️',
-                color: editingCategory?.color || '#FF9800',
-              });
-            }} className="btn-primary">
-              {editingCategory?.id ? 'Enregistrer' : 'Créer'}
+            <button
+              onClick={() => {
+                handleSubmitCategory({
+                  name: editingCategory?.name || '',
+                  icon: editingCategory?.icon || '🏷️',
+                  color: editingCategory?.color || '#FF9800',
+                });
+              }}
+              className="btn-primary"
+              disabled={Boolean(editingCategory?.id)}
+              title={
+                editingCategory?.id
+                  ? "Modification indisponible pour l'instant"
+                  : undefined
+              }
+            >
+              {editingCategory?.id ? 'Enregistrer (indisponible)' : 'Créer'}
             </button>
           </div>
         </div>

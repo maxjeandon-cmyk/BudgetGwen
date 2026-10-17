@@ -1,9 +1,9 @@
 import React from 'react';
 import type { Batch } from '../types/budget';
+import ConfirmButton from './ConfirmButton';
 
 interface BatchListProps {
   batches: Batch[];
-  onSelect: (batch: Batch) => void;
   onConfirm: (batchId: string) => void;
   onCancel: (batchId: string) => void;
   onDelete: (batchId: string) => void;
@@ -15,15 +15,11 @@ const STATUS_LABELS: Record<string, string> = {
   cancelled: 'Annulé',
 };
 
-const BatchList = ({ batches, onSelect, onConfirm, onCancel, onDelete }: BatchListProps) => {
+const BatchList = ({ batches, onConfirm, onCancel, onDelete }: BatchListProps) => {
   return (
     <div className="batch-grid">
       {batches.map(batch => (
-        <div
-          key={batch.id}
-          className="batch-card"
-          onClick={() => onSelect(batch)}
-        >
+        <div key={batch.id} className="batch-card">
           <div className="batch-header">
             <span className="batch-name">{batch.name}</span>
             <span className={`status-badge status-${batch.status}`}>
@@ -56,16 +52,15 @@ const BatchList = ({ batches, onSelect, onConfirm, onCancel, onDelete }: BatchLi
                 ⊘ Annuler
               </button>
             )}
-            <button
+            <ConfirmButton
               className="btn-small btn-danger"
-              onClick={(e: React.MouseEvent) => {
-                e.stopPropagation();
-                onDelete(batch.id);
-              }}
-              aria-label={`Supprimer le lot « ${batch.name} »`}
+              stopPropagation
+              onConfirm={() => onDelete(batch.id)}
+              label={`Supprimer le lot « ${batch.name} » et ses ${batch.transactionIds.length} transactions`}
+              confirmText="⚠️ Recliquez : lot et transactions seront supprimés"
             >
               🗑️ Supprimer
-            </button>
+            </ConfirmButton>
           </div>
         </div>
       ))}

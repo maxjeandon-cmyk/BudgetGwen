@@ -182,6 +182,33 @@ button:active {
   border-radius: 8px;
 }
 
+/* ---------- Confirmation a double clic ---------- */
+
+/* Etat arme du ConfirmButton : on ne peut pas le rater. */
+.btn-confirm-armed {
+  background: color-mix(in srgb, var(--expense) 10%, var(--surface));
+  color: var(--expense);
+  font-weight: 700;
+  font-size: 0.78rem;
+  border: 1px solid color-mix(in srgb, var(--expense) 45%, var(--border));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--expense) 18%, transparent);
+}
+
+.btn-confirm-armed:hover {
+  background: color-mix(in srgb, var(--expense) 16%, var(--surface));
+}
+
+button:disabled,
+button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button:disabled:active,
+button[disabled]:active {
+  transform: none;
+}
+
 :focus-visible {
   outline: 3px solid var(--accent-deep);
   outline-offset: 2px;
