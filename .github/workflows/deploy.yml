@@ -28,8 +28,8 @@ jobs:
       - name: Harnais de verification (87 assertions, sans dependance)
         run: node harness/run.mjs
 
-      - name: Installation des dependances
-        run: npm ci
+      - name: Installation des dependances (sans lock file : npm install, pas npm ci)
+        run: npm install
 
       - name: Build de production
         run: npm run build
