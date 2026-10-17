@@ -237,7 +237,7 @@ const App: React.FC = () => {
       {/* En-tête */}
       <header className="app-header">
         <h1>💰 BudgetGwen</h1>
-        <p>Gestion budgétaire à double entrée, en euros</p>
+        <p>Votre budget, simplement</p>
       </header>
 
       {/* Barre de navigation */}
@@ -505,7 +505,7 @@ const App: React.FC = () => {
 
       {/* Pied de page */}
       <footer className="app-footer">
-        <p>BudgetGwen — outil de gestion budgétaire à double entrée</p>
+        <p>BudgetGwen — votre budget, simplement</p>
         <p>Données sauvegardées localement dans votre navigateur</p>
       </footer>
     </div>
