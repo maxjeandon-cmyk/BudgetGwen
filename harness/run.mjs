@@ -308,6 +308,24 @@ if (genRun.status === 0) {
 }
 
 // ============================================================
+// Verrous : hors ligne — cache de la coquille (app shell)
+// ============================================================
+
+// L app doit s ouvrir SANS réseau. Le service worker garde la coquille
+// (page, actifs, icônes, manifest) — jamais les données de Gwen, qui
+// vivent dans son localStorage et dans ses sauvegardes JSON.
+check('hors ligne — cache versionné (budgetgwen-shell-v…)', sw.includes('budgetgwen-shell-v'));
+check('hors ligne — coquille précachée à l installation', sw.includes('cache.addAll(SHELL)'));
+check('hors ligne — SHELL contient la page, le manifest et les icônes', sw.includes("'./manifest.webmanifest'") && sw.includes('icon-192.png') && sw.includes('icon-maskable-512.png'));
+check('hors ligne — vieux caches purgés à l activation', sw.includes('caches.keys()') && sw.includes('caches.delete'));
+check('hors ligne — navigation : réseau d abord, cache en secours', sw.includes("event.request.mode === 'navigation'") && sw.includes("caches.match('./')"));
+check('hors ligne — actifs servis du cache, mis à jour en arrière-plan', sw.includes('caches.match(event.request)') && sw.includes('cache.put(event.request'));
+check('hors ligne — seules les requêtes GET de même origine', sw.includes("event.request.method !== 'GET'") && sw.includes('url.origin !== self.location.origin'));
+check('hors ligne — rien de douteux mis en cache (response.ok, clone)', sw.includes('response.ok') && sw.includes('response.clone()'));
+check('hors ligne — skipWaiting conservé (activation immédiate)', sw.includes('skipWaiting'));
+check('hors ligne — clients.claim conservé', sw.includes('clients.claim'));
+
+// ============================================================
 // Etage 2 : suite dynamique sur le vrai hook
 // ============================================================
 
