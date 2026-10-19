@@ -77,11 +77,11 @@ const Dashboard = ({
     <section className="dashboard" aria-label="Tableau de bord">
       <div className="dashboard-grid">
         <div className="balance-card">
-          <h3>Solde global</h3>
+          <h3>Patrimoine</h3>
           <p className="balance-amount" aria-label={formatEUR(overallBalance)}>
             {formatEUR(overallBalance)}
           </p>
-          <p className="card-hint">Tous comptes confondus</p>
+          <p className="card-hint">Vos actifs moins vos dettes</p>
         </div>
         <div className="income-card">
           <h3>Revenus du mois</h3>

@@ -11,6 +11,8 @@ interface BudgetData {
   accounts: Account[];
   batches: Batch[];
   categories: Category[];
+  // Marqueur Lot 4 : pose par migrateLot4 pour ne jamais rejouer la migration.
+  lot4Migrated?: boolean;
 }
 
 const initialData: BudgetData = {
@@ -32,6 +34,67 @@ export function isEffectiveTransaction(transaction: Transaction, batches: Batch[
   return batch?.status === 'confirmed';
 }
 
+// Solde NATUREL d'un compte (Lot 4) : le sens comptable classique, enfin.
+//   actif  : debits - credits (ce que le compte possede vraiment) ;
+//   autres (passif, revenu, depense, capital) : credits - debits.
+// Ainsi un remboursement qui credite un compte de depense deduit les
+// sorties, et le solde global ne gonfle plus de 2 x le montant depense.
+export function calculateNaturalBalance(
+  accountId: string,
+  accountType: string | undefined,
+  transactions: Transaction[],
+  batches: Batch[]
+): number {
+  let debit = 0;
+  let credit = 0;
+  transactions.forEach(t => {
+    if (!isEffectiveTransaction(t, batches)) return;
+    if (t.debitAccountId === accountId) debit += t.amount;
+    if (t.creditAccountId === accountId) credit += t.amount;
+  });
+  const natural = accountType === 'actif' ? debit - credit : credit - debit;
+  return round2(natural);
+}
+
+// Migration Lot 4, IDEMPOTENTE : retaille une seule fois les donnees
+// existantes vers la semantique naturelle (marqueur lot4Migrated).
+//   1. « Ouverture » passe de passif a capital : un apport de depart,
+//      pas une dette — le patrimoine ne le compte plus ;
+//   2. les « Solde initial — » herites (debit Ouverture) sont retournes
+//      dans le sens naturel : debit du compte cree, credit Ouverture ;
+//   3. tous les soldes sont recalcules au naturel, par agregation.
+export function migrateLot4(data: BudgetData): BudgetData {
+  if (data.lot4Migrated) return data;
+
+  const accounts = data.accounts.map(a =>
+    a.type === 'passif' && a.name === 'Ouverture'
+      ? { ...a, type: 'capital' as const }
+      : a
+  );
+  const typeOf = (id: string): string | undefined =>
+    accounts.find(a => a.id === id)?.type;
+
+  const transactions = data.transactions.map(t => {
+    if (!t.label || !t.label.startsWith('Solde initial — ')) return t;
+    return typeOf(t.debitAccountId) === 'capital'
+      ? {
+          ...t,
+          debitAccountId: t.creditAccountId,
+          debitCategoryId: t.creditCategoryId,
+          creditAccountId: t.debitAccountId,
+          creditCategoryId: t.debitCategoryId,
+        }
+      : t;
+  });
+
+  const recalculated = accounts.map(account => ({
+    ...account,
+    balance: calculateNaturalBalance(account.id, account.type, transactions, data.batches),
+  }));
+
+  return { ...data, accounts: recalculated, transactions, lot4Migrated: true };
+}
+
 export function useBudget() {
   const [data, setData] = useState<BudgetData>(() => {
     if (typeof window !== 'undefined') {
@@ -39,7 +102,7 @@ export function useBudget() {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          return { ...initialData, ...parsed };
+          return migrateLot4({ ...initialData, ...parsed });
         } catch {
           return initialData;
         }
@@ -60,26 +123,17 @@ export function useBudget() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
   }, []);
 
-  // Calcule le solde d'un compte à partir des transactions EFFECTIVES
-  const calculateAccountBalance = useCallback((accountId: string, transactions: Transaction[], batches: Batch[]): number => {
-    let balance = 0;
-    transactions.forEach(t => {
-      if (!isEffectiveTransaction(t, batches)) return;
-      if (t.debitAccountId === accountId) {
-        balance -= t.amount;
-      }
-      if (t.creditAccountId === accountId) {
-        balance += t.amount;
-      }
-    });
-    return round2(balance);
+  // Calcule le solde NATUREL d'un compte (Lot 4) : delegue a la fonction
+  // exportee calculateNaturalBalance, testee par le harnais.
+  const calculateAccountBalance = useCallback((accountId: string, accountType: string | undefined, transactions: Transaction[], batches: Batch[]): number => {
+    return calculateNaturalBalance(accountId, accountType, transactions, batches);
   }, []);
 
   // Recalcule tous les soldes des comptes (par agregation, jamais en place)
   const recalculateAllBalances = useCallback((transactions: Transaction[], accounts: Account[], batches: Batch[]): Account[] => {
     return accounts.map(account => ({
       ...account,
-      balance: calculateAccountBalance(account.id, transactions, batches),
+      balance: calculateAccountBalance(account.id, account.type, transactions, batches),
     }));
   }, [calculateAccountBalance]);
 
@@ -385,27 +439,23 @@ export function useBudget() {
     const accountType = (id: string): string | undefined =>
       data.accounts.find(a => a.id === id)?.type;
 
-    // Revenu: l argent entre dans les actifs/passifs depuis un compte de flux
-    // (credit sur un compte 'revenu', ou debit actif/passif + credit hors actif/passif)
+    // Revenu (Lot 4, bidirectionnel) : ce qui CREDITE un compte 'revenu',
+    // moins ce qui le DEBITE (correction, annulation de salaire).
     const totalIncome = monthTransactions
-      .filter(t => {
-        const creditType = accountType(t.creditAccountId);
-        const debitType = accountType(t.debitAccountId);
-        return creditType === 'revenu' ||
-          ((debitType === 'actif' || debitType === 'passif') && creditType !== 'actif' && creditType !== 'passif');
-      })
-      .reduce((sum, t) => sum + t.amount, 0);
+      .filter(t => accountType(t.creditAccountId) === 'revenu' || accountType(t.debitAccountId) === 'revenu')
+      .reduce((sum, t) => {
+        if (accountType(t.creditAccountId) === 'revenu') return sum + t.amount;
+        return sum - t.amount;
+      }, 0);
 
-    // Depense: l argent sort des actifs/passifs vers un compte de flux
-    // (debit sur un compte 'depense', ou credit actif/passif + debit hors actif/passif)
+    // Depense (Lot 4, bidirectionnel) : ce qui DEBITE un compte 'depense',
+    // moins ce qui le CREDITE (remboursement, ajustement).
     const totalExpense = monthTransactions
-      .filter(t => {
-        const debitType = accountType(t.debitAccountId);
-        const creditType = accountType(t.creditAccountId);
-        return debitType === 'depense' ||
-          ((creditType === 'actif' || creditType === 'passif') && debitType !== 'actif' && debitType !== 'passif');
-      })
-      .reduce((sum, t) => sum + t.amount, 0);
+      .filter(t => accountType(t.debitAccountId) === 'depense' || accountType(t.creditAccountId) === 'depense')
+      .reduce((sum, t) => {
+        if (accountType(t.debitAccountId) === 'depense') return sum + t.amount;
+        return sum - t.amount;
+      }, 0);
 
     // Solde mensuel
     const netBalance = round2(totalIncome - totalExpense);
@@ -424,7 +474,7 @@ export function useBudget() {
     // Par compte
     const byAccount: Record<string, number> = {};
     data.accounts.forEach(acc => {
-      byAccount[acc.id] = calculateAccountBalance(acc.id, monthTransactions, data.batches);
+      byAccount[acc.id] = calculateAccountBalance(acc.id, acc.type, monthTransactions, data.batches);
     });
 
     return {
@@ -437,16 +487,15 @@ export function useBudget() {
     };
   }, [data.accounts, data.batches, data.transactions, calculateAccountBalance]);
 
-  // Calcule le solde global (actifs + revenus - passifs - dépenses - capital)
+  // Patrimoine (Lot 4) : les ACTIFS moins les PASSIFS, uniquement.
+  // Les comptes de flux (revenu, depense) et de capital ne pesent plus :
+  // une depense ne gonfle donc plus le solde de 2 x son montant.
   const getOverallBalance = useCallback(() => {
-    return data.accounts.reduce((sum, acc) => {
-      if (acc.type === 'actif' || acc.type === 'revenu') {
-        return sum + acc.balance;
-      } else if (acc.type === 'passif' || acc.type === 'depense' || acc.type === 'capital') {
-        return sum - acc.balance;
-      }
+    return round2(data.accounts.reduce((sum, acc) => {
+      if (acc.type === 'actif') return sum + acc.balance;
+      if (acc.type === 'passif') return sum - acc.balance;
       return sum;
-    }, 0);
+    }, 0));
   }, [data.accounts]);
 
   // Filtre les transactions par mois

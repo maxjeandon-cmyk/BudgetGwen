@@ -20,9 +20,10 @@ type ModalType = 'transaction' | 'account' | 'category' | null;
 type AccountDraft = Partial<Account> & { openingBalance?: string };
 
 // Compte d ouverture : la contrepartie en partie double des soldes initiaux.
-// Type passif choisi a dessein : face a un actif, la transaction d ouverture
-// est NEUTRE pour le resume mensuel du hook fige (ni revenu, ni depense) —
-// le mois ou l on cree ses comptes n affiche donc aucun fantome.
+// Type capital (Lot 4) : c est un apport de depart, pas une dette. La
+// transaction d ouverture est ecrite au sens naturel (debit du compte cree
+// pour un solde positif) et reste NEUTRE pour le resume mensuel : ni revenu
+// ni depense fantome le mois ou l on cree ses comptes.
 const OPENING_ACCOUNT_NAME = 'Ouverture';
 const OPENING_ACCOUNT_COLOR = '#8D6E63';
 
@@ -54,7 +55,7 @@ const App: React.FC = () => {
   const [txMode, setTxMode] = useState<'income' | 'expense' | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Partial<Transaction> | null>(null);
   const [editingAccount, setEditingAccount] = useState<AccountDraft | null>(null);
-  // Solde initial en attente : le hook fige cree les comptes a balance 0 et
+  // Solde initial en attente : le hook cree les comptes a balance 0 et
   // recalcule les soldes depuis les transactions. La seule facon honnete
   // de donner un solde de depart est donc une transaction equilibree
   // « Solde initial », ecrite des que le compte existe vraiment.
@@ -95,7 +96,8 @@ const App: React.FC = () => {
 
   // Ecrit la transaction « Solde initial » des que le nouveau compte existe
   // (addAccount genere son id dans le hook : on ne le connait qu apres rendu).
-  // - solde positif : debit « Ouverture », credit du nouveau compte ;
+  // Sens naturel (Lot 4) :
+  // - solde positif : debit du nouveau compte, credit « Ouverture » ;
   // - solde negatif (ex : decouvert) : sens inverse.
   // Le compte « Ouverture » est cree au besoin, une seule fois.
   useEffect(() => {
@@ -116,12 +118,12 @@ const App: React.FC = () => {
     const opening = pendingOpening.openingId
       ? data.accounts.find(a => a.id === pendingOpening.openingId)
       : data.accounts.find(
-          a => a.type === 'passif' && a.name === OPENING_ACCOUNT_NAME && a.id !== target.id
+          a => a.type === 'capital' && a.name === OPENING_ACCOUNT_NAME && a.id !== target.id
         );
     if (!opening) {
       if (guard.ensured) return; // deja demande : on attend le rendu suivant
       guard.ensured = true;
-      addAccount({ name: OPENING_ACCOUNT_NAME, type: 'passif', color: OPENING_ACCOUNT_COLOR });
+      addAccount({ name: OPENING_ACCOUNT_NAME, type: 'capital', color: OPENING_ACCOUNT_COLOR });
       return;
     }
     if (guard.done) return;
@@ -130,8 +132,8 @@ const App: React.FC = () => {
     if (amount > 0) {
       addTransaction({
         date: new Date().toISOString().split('T')[0],
-        debitAccountId: pendingOpening.amount > 0 ? opening.id : target.id,
-        creditAccountId: pendingOpening.amount > 0 ? target.id : opening.id,
+        debitAccountId: pendingOpening.amount > 0 ? target.id : opening.id,
+        creditAccountId: pendingOpening.amount > 0 ? opening.id : target.id,
         amount,
         label: `Solde initial — ${target.name}`,
       });
@@ -155,7 +157,7 @@ const App: React.FC = () => {
   // restent en coulisses : ils sont la machinerie, pas les acteurs.
   const dashboardAccounts = useMemo(() => {
     return data.accounts.filter(
-      a => a.type !== 'revenu' && !(a.name === OPENING_ACCOUNT_NAME && a.type === 'passif')
+      a => a.type !== 'revenu' && !(a.name === OPENING_ACCOUNT_NAME && a.type === 'capital')
     );
   }, [data.accounts]);
 
@@ -239,7 +241,7 @@ const App: React.FC = () => {
       // Le solde sera materialise par une transaction « Solde initial » des
       // que le compte existe (voir useEffect pendingOpening ci-dessus).
       const existingOpening = data.accounts.find(
-        a => a.type === 'passif' && a.name === OPENING_ACCOUNT_NAME
+        a => a.type === 'capital' && a.name === OPENING_ACCOUNT_NAME
       );
       setPendingOpening({
         name,

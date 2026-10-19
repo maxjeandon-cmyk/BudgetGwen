@@ -7,7 +7,7 @@
 //   2. Suite dynamique : le VRAI src/hooks/useBudget.ts execute par Node
 //      (--experimental-strip-types) sur un mini-React et un localStorage factice.
 //
-// Le hook est FIGE (mode design) : son SHA-256 doit rester 18c56b57…185120.
+// Le hook est REFIGE apres le degel unique du Lot 4 : son SHA-256 doit rester 1ef71203…0b117.
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -28,7 +28,7 @@ function check(name, ok) {
 // ============================================================
 
 // Invariant sacre : le hook ne doit jamais bouger en mode design.
-const FROZEN_SHA = '18c56b57b6be5f07afcd1974323de87cd9b938d477a43730abc05c73be185120';
+const FROZEN_SHA = '1ef71203675d30b7c2bccbc41ff6560779543aa7438ba42b4f1d9cd60b60b117';
 const hookSha = crypto.createHash('sha256').update(read('src/hooks/useBudget.ts')).digest('hex');
 check('statique — useBudget.ts figé (SHA-256 identique)', hookSha === FROZEN_SHA);
 
@@ -42,6 +42,8 @@ const accountList = read('src/components/AccountList.tsx');
 const categoryList = read('src/components/CategoryList.tsx');
 const dashboard = read('src/components/Dashboard.tsx');
 const budgetTypes = read('src/types/budget.ts');
+const hook = read('src/hooks/useBudget.ts');
+const suite = read('harness/hook-suite.ts');
 
 // Plus un seul console.log dans le code produit.
 check('statique — aucun console.log dans App.tsx', !/console\.log/.test(app));
@@ -124,20 +126,21 @@ check('verrou — style .form-hint defini', css.includes('.form-hint'));
 // Verrous : solde initial a la creation d un compte
 // ============================================================
 
-// Le hook fige cree toujours les comptes a balance 0 et recalcule les
+// Le hook cree toujours les comptes a balance 0 et recalcule les
 // soldes depuis les transactions. Le solde saisi est donc materialise
 // par une transaction « Solde initial » equilibree contre un compte
-// d ouverture « Ouverture » (passif) — neutre pour le resume mensuel :
-// ni revenu ni depense fantome le mois de la creation. Ces verrous
-// empechent la regression vers un solde pose en base (interdit par le
-// hook) ou une contrepartie qui fausserait le Dashboard.
+// d ouverture « Ouverture » (capital, Lot 4) — neutre pour le resume
+// mensuel : ni revenu ni depense fantome le mois de la creation, ni
+// dette fictive dans le patrimoine. Ces verrous empechent la
+// regression vers un solde pose en base (interdit par le hook) ou une
+// contrepartie qui fausserait le Dashboard.
 check('verrou — champ « Solde actuel » present (account-opening)', app.includes('account-opening'));
 check('verrou — champ reserve a la creation et aux types actif/passif', app.includes("['actif', 'passif'].includes(editingAccount?.type || 'actif')"));
 check('verrou — libelle « vide pour partir de zero » present', app.includes('vide pour partir de zéro'));
 check('verrou — transaction « Solde initial — » generee', app.includes('Solde initial — '));
-check('verrou — compte d ouverture « Ouverture » declare en passif', app.includes("OPENING_ACCOUNT_NAME = 'Ouverture'") && app.includes("type: 'passif'"));
+check('verrou — compte d ouverture « Ouverture » declare en capital', app.includes("OPENING_ACCOUNT_NAME = 'Ouverture'") && app.includes("type: 'capital'"));
 check('verrou — garde StrictMode contre le double effet', app.includes('openingGuardRef'));
-check('verrou — solde negatif ecrit dans l autre sens', app.includes('pendingOpening.amount > 0 ? opening.id : target.id'));
+check('verrou — solde positif ecrit au sens naturel (debit du compte)', app.includes('pendingOpening.amount > 0 ? target.id : opening.id'));
 check('verrou — edition d un compte existant : solde ignore', app.includes('le solde se gere par les transactions'));
 
 // ============================================================
@@ -151,7 +154,7 @@ check('verrou — edition d un compte existant : solde ignore', app.includes('le
 // TOUS les comptes : on a besoin des coulisses pour jouer dessus.
 check('verrou — liste dashboardAccounts filtree dans App', app.includes('dashboardAccounts'));
 check('verrou — comptes de revenu masques au Dashboard', app.includes("a.type !== 'revenu' && !(a.name === OPENING_ACCOUNT_NAME"));
-check('verrou — compte Ouverture masque au Dashboard', app.includes('a.name === OPENING_ACCOUNT_NAME && a.type === \'passif\''));
+check('verrou — compte Ouverture masque au Dashboard', app.includes('a.name === OPENING_ACCOUNT_NAME && a.type === \'capital\''));
 check('verrou — Dashboard recoit la liste filtree', app.includes('accounts={dashboardAccounts}'));
 check('verrou — listes de gestion : tous les comptes conserves', app.includes('accounts={data.accounts}'));
 
@@ -170,6 +173,33 @@ check('verrou — defauts : plus aucun compte de demo (cash/bank/savings/credit_
   !budgetTypes.includes("id: 'cash'") && !budgetTypes.includes("id: 'bank'") &&
   !budgetTypes.includes("id: 'savings'") && !budgetTypes.includes("id: 'credit_card'"));
 check('verrou — TransactionForm guide vers « Comptes » sans compte réel', txForm.includes("créez-le d'abord dans « Comptes »"));
+
+// ============================================================
+// Verrous : Lot 4 — degel unique du hook, semantique naturelle
+// ============================================================
+
+// Le hook a ete DEGELE une seule fois (Lot 4) pour rendre les soldes
+// naturels : actif = debits - credits, autres = credits - debits ; le
+// solde global devient un PATRIMOINE (actifs - passifs : les flux et le
+// capital ne pesent plus) ; le resume mensuel devient bidirectionnel
+// (un remboursement deduit les depenses, une correction deduit les
+// revenus). Ces verrous empechent le retour a la balance de grand livre.
+check('verrou lot4 — solde naturel : actif = debits - credits', hook.includes("accountType === 'actif' ? debit - credit : credit - debit"));
+check('verrou lot4 — calculateNaturalBalance exporte', hook.includes('export function calculateNaturalBalance'));
+check('verrou lot4 — le hook delegue ses soldes au naturel', hook.includes('return calculateNaturalBalance(accountId, accountType, transactions, batches);'));
+check('verrou lot4 — patrimoine : actif ajoute, passif deduit', hook.includes("if (acc.type === 'actif') return sum + acc.balance;") && hook.includes("if (acc.type === 'passif') return sum - acc.balance;"));
+check('verrou lot4 — plus aucun flux dans le solde global', !hook.includes("acc.type === 'revenu'") && !hook.includes("acc.type === 'depense'"));
+check('verrou lot4 — remboursement deduit les depenses du mois', hook.includes("accountType(t.creditAccountId) === 'depense'") && hook.includes('return sum - t.amount;'));
+check('verrou lot4 — correction deduit les revenus du mois', hook.includes("accountType(t.debitAccountId) === 'revenu'"));
+check('verrou lot4 — migration migrateLot4 exportee', hook.includes('export function migrateLot4'));
+check('verrou lot4 — migration idempotente (marqueur lot4Migrated)', hook.includes('if (data.lot4Migrated) return data;') && hook.includes('lot4Migrated: true'));
+check('verrou lot4 — migration appliquee au chargement du hook', hook.includes('return migrateLot4({ ...initialData, ...parsed });'));
+check('verrou lot4 — « Ouverture » retypé capital dans App', app.includes("{ name: OPENING_ACCOUNT_NAME, type: 'capital'"));
+check('verrou lot4 — solde positif ecrit au sens naturel (debit du compte)', app.includes('pendingOpening.amount > 0 ? target.id : opening.id'));
+check('verrou lot4 — Ouverture capital masque au Dashboard', app.includes("a.name === OPENING_ACCOUNT_NAME && a.type === 'capital'"));
+check('verrou lot4 — suite : attentes naturelles et sections Lot 4', suite.includes('patrimoine 142,00') && suite.includes('===== 9. Lot 4') && suite.includes('===== 10. Lot 4'));
+check('verrou lot4 — suite : remboursement et migration verifies', suite.includes('remboursement') && suite.includes('idempotente'));
+check('verrou lot4 — Dashboard : carte « Patrimoine »', dashboard.includes('Patrimoine') && dashboard.includes('Vos actifs moins vos dettes'));
 
 // ============================================================
 // Etage 2 : suite dynamique sur le vrai hook
