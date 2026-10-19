@@ -2,6 +2,8 @@
 
 > Votre budget, simplement.
 
+**App en ligne : https://maxjeandon-cmyk.github.io/BudgetGwen/**
+
 Petite application de gestion de budget personnel, simple et chaleureuse : on saisit une transaction, la comptabilite en partie double s occupe du reste, et les donnees ne quittent jamais le navigateur.
 
 ## Fonctionnalites
@@ -49,7 +51,7 @@ Il pose plus de 220 verrous, dont l execution du **vrai** hook `useBudget` sur u
 
 ## Deploiement
 
-A chaque push sur `main`, GitHub Actions joue le harnais, construit le site puis le deploie sur GitHub Pages (voir `.github/workflows/deploy.yml`).
+A chaque push sur `main`, GitHub Actions joue le harnais, construit le site puis le deploie sur GitHub Pages (voir `.github/workflows/deploy.yml`). Le site est servi sur https://maxjeandon-cmyk.github.io/BudgetGwen/.
 
 ## Structure du depot
 
