@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -223,6 +224,88 @@ check('verrou données — restauration validée avant écrasement (toast refus)
 check('verrou données — restauration confirmée en deux clics', app.includes('onConfirm={handleRestoreConfirm}'));
 check('verrou données — rechargement après restauration', app.includes('window.location.reload()'));
 check('verrou données — suite : export et sauvegarde testés', suite.includes('===== 11. Paufinage') && suite.includes('transactionsToCsv'));
+
+// ============================================================
+// Verrous : PWA — icone ecran d accueil, manifest, service worker
+// ============================================================
+
+// L app doit pouvoir s installer sur l ecran d accueil de Gwen.
+// Contrainte du depot : aucun binaire ne transite jamais par l API —
+// les icones sont GENEREES au build par scripts/generate-icons.mjs
+// (pur node, zlib, CRC32 : zero dependance) puis validees ici octet
+// par octet, comme le reste de la maison.
+const manifestRaw = read('public/manifest.webmanifest');
+let manifest = null;
+try { manifest = JSON.parse(manifestRaw); } catch { manifest = null; }
+check('pwa — manifest.webmanifest est un JSON valide', manifest !== null);
+check('pwa — manifest : name et short_name déclarés', Boolean(manifest && manifest.name && manifest.short_name));
+check('pwa — manifest : display standalone, start_url relatif "./"', manifest && manifest.display === 'standalone' && manifest.start_url === './');
+check('pwa — manifest : theme_color terracotta, background_color crème', manifest && manifest.theme_color === '#c95f3f' && manifest.background_color === '#faf5ee');
+const iconList = manifest && Array.isArray(manifest.icons) ? manifest.icons : [];
+check('pwa — manifest : icônes 192 any, 512 any et 512 maskable déclarées',
+  iconList.some(i => i.sizes === '192x192' && i.purpose === 'any') &&
+  iconList.some(i => i.sizes === '512x512' && i.purpose === 'any') &&
+  iconList.some(i => i.sizes === '512x512' && i.purpose === 'maskable'));
+
+const sw = read('public/sw.js');
+check('pwa — sw.js déclare un handler fetch (installable)', sw.includes("addEventListener('fetch'"));
+const indexHtml = read('index.html');
+check('pwa — index.html relie le manifest', indexHtml.includes('manifest.webmanifest'));
+check('pwa — index.html déclare theme-color terracotta', indexHtml.includes('content="#c95f3f"'));
+check('pwa — index.html déclare apple-touch-icon (iOS)', indexHtml.includes('apple-touch-icon'));
+const mainTsx = read('src/main.tsx');
+check('pwa — service worker enregistré au chargement (main.tsx)', mainTsx.includes('serviceWorker.register'));
+const gen = read('scripts/generate-icons.mjs');
+check('pwa — générateur d icônes déterministe (aucun Math.random)', !gen.includes('Math.random'));
+const pkgJson = JSON.parse(read('package.json'));
+check('pwa — le build génère les icônes avant vite build', pkgJson.scripts.build === 'node scripts/generate-icons.mjs && vite build');
+
+// Génération réelle puis vérification structurelle : signature PNG, CRC de
+// chaque morceau, dimensions IHDR, IDAT décompressible à la taille exacte.
+const genRun = spawnSync(process.execPath, [path.join(ROOT, 'scripts/generate-icons.mjs')], { encoding: 'utf8' });
+check('pwa — le générateur d icônes s exécute sans erreur', genRun.status === 0);
+if (genRun.status !== 0 && genRun.stderr) console.error(genRun.stderr);
+if (genRun.status === 0) {
+  const crcTable = [];
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    crcTable[n] = c >>> 0;
+  }
+  const crc32buf = (buf) => {
+    let c = 0xffffffff;
+    for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const verifyPng = (rel, expectedW, expectedH) => {
+    const file = fs.readFileSync(path.join(ROOT, rel));
+    const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    if (!file.subarray(0, 8).equals(sig)) return 'signature invalide';
+    let off = 8, w = 0, h = 0;
+    const idatParts = [];
+    while (off + 12 <= file.length) {
+      const len = file.readUInt32BE(off);
+      const type = file.toString('ascii', off + 4, off + 8);
+      const data = file.subarray(off + 8, off + 8 + len);
+      const crc = file.readUInt32BE(off + 8 + len);
+      if (crc !== crc32buf(Buffer.concat([file.subarray(off + 4, off + 8), data]))) return 'CRC invalide (' + type + ')';
+      if (type === 'IHDR') { w = data.readUInt32BE(0); h = data.readUInt32BE(4); }
+      if (type === 'IDAT') idatParts.push(data);
+      off += 12 + len;
+    }
+    if (w !== expectedW || h !== expectedH) return 'IHDR ' + w + 'x' + h + ', attendu ' + expectedW + 'x' + expectedH;
+    try {
+      const raw = zlib.inflateSync(Buffer.concat(idatParts));
+      if (raw.length !== h * (w * 4 + 1)) return 'IDAT gonflé à ' + raw.length + ', attendu ' + h * (w * 4 + 1);
+    } catch (e) {
+      return 'IDAT non décompressible : ' + (e && e.message ? e.message : e);
+    }
+    return 'ok';
+  };
+  check('pwa — icon-192.png : PNG valide 192x192 (signature, CRC, IDAT)', verifyPng('public/icons/icon-192.png', 192, 192) === 'ok');
+  check('pwa — icon-512.png : PNG valide 512x512', verifyPng('public/icons/icon-512.png', 512, 512) === 'ok');
+  check('pwa — icon-maskable-512.png : PNG valide 512x512', verifyPng('public/icons/icon-maskable-512.png', 512, 512) === 'ok');
+}
 
 // ============================================================
 // Etage 2 : suite dynamique sur le vrai hook
