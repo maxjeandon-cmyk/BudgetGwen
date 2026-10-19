@@ -8,11 +8,13 @@ import CategoryList from './components/CategoryList';
 import BatchList from './components/BatchList';
 import TransactionForm from './components/TransactionForm';
 import Modal from './components/Modal';
+import ConfirmButton from './components/ConfirmButton';
+import { transactionsToCsv, buildBackup, validateBackup, type BudgetSnapshot } from './export';
 import './App.css';
 
 // Types pour les modales
 type MonthOption = { value: string; label: string };
-type ModalType = 'transaction' | 'account' | 'category' | null;
+type ModalType = 'transaction' | 'account' | 'category' | 'restore' | null;
 
 // Brouillon du formulaire de compte : le compte en cours d edition, plus le
 // champ « solde actuel » qui n existe qu a la creation (chaine libre,
@@ -69,6 +71,13 @@ const App: React.FC = () => {
   // ni deux comptes « Ouverture » ni deux transactions d ouverture.
   const openingGuardRef = useRef<{ pending: object | null; ensured: boolean; done: boolean }>({ pending: null, ensured: false, done: false });
   const [editingCategory, setEditingCategory] = useState<Partial<Category> | null>(null);
+  // Sauvegarde candidate a la restauration : validee d abord, presentee
+  // en modale ensuite, remplace tout au second clic. On ne restaure jamais
+  // a l aveugle.
+  const [restoreCandidate, setRestoreCandidate] = useState<{
+    snapshot: BudgetSnapshot;
+    name: string;
+  } | null>(null);
   const [currentMonth, setCurrentMonth] = useState<string>(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -316,6 +325,68 @@ const App: React.FC = () => {
     showToast(`Catégorie supprimée : « ${category?.name || id} »`);
   };
 
+  // Telecharge un contenu texte : trois lignes, zero dependance.
+  const downloadText = (filename: string, content: string, mime: string) => {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Date du jour au format fichier : 2026-10-19.
+  const fileDate = () => new Date().toISOString().slice(0, 10);
+
+  // Export CSV de TOUTES les transactions (pas seulement le mois affiche) :
+  // une sauvegarde ne doit pas dependre du mois ouvert a l ecran.
+  const handleExportCsv = () => {
+    const csv = transactionsToCsv(data.accounts, data.categories, data.batches, data.transactions);
+    downloadText(`budgetgwen-transactions-${fileDate()}.csv`, csv, 'text/csv;charset=utf-8');
+    showToast('Export CSV téléchargé ✓');
+  };
+
+  // Sauvegarde complete (JSON) : comptes, transactions, categories, lots.
+  const handleBackup = () => {
+    const json = buildBackup(data);
+    downloadText(`budgetgwen-sauvegarde-${fileDate()}.json`, json, 'application/json');
+    showToast('Sauvegarde téléchargée ✓');
+  };
+
+  // Lecture du fichier choisi : on valide AVANT de parler d ecraser quoi
+  // que ce soit. Une sauvegarde malformee ne passera jamais ce garde-fou.
+  const handleRestoreFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // rechoisir le meme fichier doit aussi fonctionner
+    if (!file) return;
+    file.text().then(text => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        showToast('Fichier illisible : ce n\'est pas du JSON');
+        return;
+      }
+      const check = validateBackup(parsed);
+      if (!check.ok || !check.data) {
+        showToast(`Sauvegarde refusée — ${check.error}`);
+        return;
+      }
+      setRestoreCandidate({ snapshot: check.data, name: file.name });
+      setActiveModal('restore');
+    });
+  };
+
+  // La restauration elle-meme : ecriture dans le localStorage du hook
+  // (cle budgetgwen.v1.data, verrou d identite dans le harnais) puis
+  // rechargement — le hook relit tout au prochain demarrage.
+  const handleRestoreConfirm = () => {
+    if (!restoreCandidate) return;
+    localStorage.setItem('budgetgwen.v1.data', JSON.stringify(restoreCandidate.snapshot));
+    window.location.reload();
+  };
+
   // Mois affichables : de la premiere transaction a la derniere (y compris
   // futures, pour les sorties differees), borne a aujourd hui au minimum.
   const monthOptions = useMemo(() => {
@@ -446,6 +517,33 @@ const App: React.FC = () => {
         <button onClick={() => openCategoryModal()} className="btn-small">
           + Ajouter une catégorie
         </button>
+      </section>
+
+      {/* Données : export, sauvegarde, restauration */}
+      <section className="app-section" aria-label="Données">
+        <h2>💾 Données</h2>
+        <p className="form-hint">
+          🗄️ Vos données vivent uniquement dans ce navigateur. Un petit export de temps en
+          temps, et elles vous suivent partout — même sur un autre appareil.
+        </p>
+        <div className="data-actions">
+          <button onClick={handleExportCsv} className="btn-secondary">
+            ⬇️ Exporter en CSV
+          </button>
+          <button onClick={handleBackup} className="btn-secondary">
+            💾 Sauvegarde complète
+          </button>
+          <label htmlFor="restore-input" className="btn-secondary data-file-label">
+            📂 Restaurer une sauvegarde…
+          </label>
+          <input
+            id="restore-input"
+            type="file"
+            accept=".json,application/json"
+            className="visually-hidden"
+            onChange={handleRestoreFile}
+          />
+        </div>
       </section>
 
       {/* Modales */}
@@ -647,6 +745,47 @@ const App: React.FC = () => {
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Modale de restauration : la validation est faite, la confirmation reste */}
+      <Modal
+        isOpen={activeModal === 'restore'}
+        onClose={() => {
+          setActiveModal(null);
+          setRestoreCandidate(null);
+        }}
+        title="Restaurer la sauvegarde"
+      >
+        {restoreCandidate && (
+          <div className="restore-form">
+            <p className="form-hint" role="alert">
+              ⚠️ Restaurer remplacera TOUTES les données actuelles par celles du fichier
+              « {restoreCandidate.name} » : {restoreCandidate.snapshot.accounts.length} comptes,{' '}
+              {restoreCandidate.snapshot.transactions.length} transactions,{' '}
+              {restoreCandidate.snapshot.categories.length} catégories,{' '}
+              {restoreCandidate.snapshot.batches.length} lots.
+            </p>
+            <div className="form-actions">
+              <button
+                onClick={() => {
+                  setActiveModal(null);
+                  setRestoreCandidate(null);
+                }}
+                className="btn-secondary"
+              >
+                Annuler
+              </button>
+              <ConfirmButton
+                onConfirm={handleRestoreConfirm}
+                label="Restaurer la sauvegarde"
+                className="btn-small btn-danger"
+                confirmText="⚠️ Recliquez pour restaurer"
+              >
+                📂 Restaurer
+              </ConfirmButton>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Toast de confirmation */}

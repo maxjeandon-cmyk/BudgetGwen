@@ -10,6 +10,7 @@
 // Les attentes ci-dessous sont calculees avec ces regles, au centime.
 import { useState, useEffect, beginRender, setRerender, flushEffects, reset } from './react-stub.mjs';
 import { useBudget, isEffectiveTransaction, calculateNaturalBalance, migrateLot4 } from './gen/useBudget.gen.ts';
+import { transactionsToCsv, buildBackup, validateBackup } from '../src/export.ts';
 
 // --- localStorage factice, pose AVANT tout rendu ---
 const storage = new Map();
@@ -259,6 +260,50 @@ eq('migration — marqueur lot4Migrated pose', migrated.lot4Migrated, true);
 const migratedTwice = migrateLot4(migrated);
 eq('migration — idempotente (second passage identique)', JSON.stringify(migratedTwice) === JSON.stringify(migrated), true);
 eq('final — invariant partie double apres migration', api.validateDoubleEntryInvariant(), true);
+
+// ===== 11. Paufinage : export, sauvegarde, restauration =====
+// Les donnees doivent pouvoir partir et revenir : CSV lisible par un
+// tableur, sauvegarde JSON complete, restauration validee avant tout
+// ecrasement. Les fonctions testees ici sont les VRAIES fonctions de
+// src/export.ts, celles que l application utilise.
+const csv = transactionsToCsv(api.data.accounts, api.data.categories, api.data.batches, api.data.transactions);
+const csvLines = csv.trimEnd().split('\n');
+eq('export — BOM utf-8 en tête du CSV', csv.charCodeAt(0), 0xFEFF);
+eq('export — 12 lignes (en-tête + 11 transactions)', csvLines.length, 12);
+check('export — en-tête français (Libellé, Compte débité)', csvLines[0].includes('Libellé') && csvLines[0].includes('Compte débité'));
+check('export — séparateur point-virgule (8 colonnes)', csvLines[0].split(';').length === 8);
+check('export — montant à virgule (ex : 250,00)', csvLines.some(l => l.includes('"250,00"')));
+check('export — lot confirmé nommé dans le CSV', csvLines.some(l => l.includes('"Courses"')));
+check('export — comptes nommés, pas leurs ids', csvLines.some(l => l.includes('"Compte Bancaire"')) && !csvLines.some(l => l.includes('"bank"')));
+// Echappement : un libellé retord avec guillemets ne casse pas le CSV.
+api.addTransaction({ date: day(12), debitAccountId: 'food_exp', debitCategoryId: 'food', creditAccountId: 'bank', amount: 8.15, label: 'Ciné "arts et essais"' });
+const csvEchappe = transactionsToCsv(api.data.accounts, api.data.categories, api.data.batches, api.data.transactions);
+check('export — guillemets du libellé doublés (CSV intégral)', csvEchappe.includes('"Ciné ""arts et essais"""'));
+eq('export — tri par date : la séance cinéma est en dernière ligne', csvEchappe.trimEnd().split('\n').slice(-1)[0].includes('Ciné'), true);
+
+// Sauvegarde complete : aller-retour JSON au centime pres.
+const backupJson = buildBackup(api.data, '2026-10-19T00:00:00.000Z');
+const backup = JSON.parse(backupJson);
+eq('sauvegarde — comptes entiers', backup.accounts.length, api.data.accounts.length);
+eq('sauvegarde — transactions entières', backup.transactions.length, api.data.transactions.length);
+eq('sauvegarde — marqueur lot4Migrated conservé', backup.lot4Migrated, api.data.lot4Migrated ?? undefined);
+check('sauvegarde — date d export embarquée', backup.exportedAt === '2026-10-19T00:00:00.000Z');
+
+// Restauration : la validation accepte ce que la sauvegarde produit...
+const restaure = validateBackup(backup);
+eq('restauration — sauvegarde validée', restaure.ok, true);
+eq('restauration — aller-retour : comptes identiques', JSON.stringify(restaure.data?.accounts), JSON.stringify(api.data.accounts));
+eq('restauration — aller-retour : transactions identiques', JSON.stringify(restaure.data?.transactions), JSON.stringify(api.data.transactions));
+check('restauration — champ exportedAt écarté (localStorage propre)', !('exportedAt' in (restaure.data ?? {})));
+// ...et refuse le reste : malforme, incoherent, ou carrement pas une sauvegarde.
+eq('restauration — refus si comptes manquants', validateBackup({ transactions: [], categories: [] }).ok, false);
+eq('restauration — refus si une chaîne est passée', validateBackup('bonjour').ok, false);
+eq('restauration — refus si montant nul', validateBackup({ ...backup, transactions: [...backup.transactions, { id: 'x', date: day(1), label: 'Nul', amount: 0, debitAccountId: 'bank', creditAccountId: 'cash' }] }).ok, false);
+eq('restauration — refus si débit = crédit', validateBackup({ ...backup, transactions: [{ id: 'x', date: day(1), label: 'Miroir', amount: 5, debitAccountId: 'bank', creditAccountId: 'bank' }] }).ok, false);
+eq('restauration — refus si compte inconnu', validateBackup({ ...backup, transactions: [{ id: 'x', date: day(1), label: 'Fantôme', amount: 5, debitAccountId: 'inconnu', creditAccountId: 'bank' }] }).ok, false);
+eq('restauration — refus si compte au type inconnu', validateBackup({ ...backup, accounts: [...backup.accounts, { id: 'z', name: 'Étrange', type: 'cryptomonnaie', color: '#000', balance: 1 }] }).ok, false);
+eq('restauration — refus si lot au statut farfelu', validateBackup({ ...backup, batches: [...backup.batches, { id: 'z', name: 'Étrange', status: 'perdu', transactionIds: [] }] }).ok, false);
+eq('final — invariant partie double après export', api.validateDoubleEntryInvariant(), true);
 
 // Sortie unique, consommee par run.mjs.
 console.log(JSON.stringify(results));

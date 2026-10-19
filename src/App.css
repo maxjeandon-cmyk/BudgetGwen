@@ -853,3 +853,33 @@ button[disabled]:active {
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   }
 }
+
+/* ---------- Données : export, sauvegarde, restauration ---------- */
+
+.data-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Le label déguisé en bouton « Restaurer… » : même robe que
+   .btn-secondary, même hauteur, mais il ouvre un sélecteur de fichier. */
+.data-file-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 400;
+}
+
+.data-file-label:hover {
+  background: var(--border);
+}
+
+.restore-form {
+  display: flex;
+  flex-direction: column;
+}

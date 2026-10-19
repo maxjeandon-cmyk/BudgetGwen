@@ -202,6 +202,29 @@ check('verrou lot4 — suite : remboursement et migration verifies', suite.inclu
 check('verrou lot4 — Dashboard : carte « Patrimoine »', dashboard.includes('Patrimoine') && dashboard.includes('Vos actifs moins vos dettes'));
 
 // ============================================================
+// Verrous : paufinage — export, sauvegarde, restauration
+// ============================================================
+
+// Les donnees vivent dans le navigateur de Gwen : elles doivent pouvoir
+// partir (CSV pour le tableur, JSON pour la copie complete) et revenir
+// par une restauration VALIDEE puis CONFIRMEE. Ces verrous empechent la
+// regression vers des donnees prisonnieres du localStorage.
+const exportTs = read('src/export.ts');
+check('verrou données — bouton « Exporter en CSV » présent', app.includes('Exporter en CSV'));
+check('verrou données — bouton « Sauvegarde complète » présent', app.includes('Sauvegarde complète'));
+check('verrou données — bouton « Restaurer une sauvegarde » présent', app.includes('Restaurer une sauvegarde'));
+check('verrou données — CSV : BOM utf-8 et point-virgule (Excel friendly)', exportTs.includes("'\\uFEFF'") && exportTs.includes("CSV_SEP = ';'"));
+check('verrou données — CSV : cellules échappées (guillemets doublés)', exportTs.includes('replace(/"/g, \'""\')'));
+check('verrou données — CSV : montant à virgule décimale', exportTs.includes("replace('.', ',')"));
+check('verrou données — validateBackup exporté (garde-fou restauration)', exportTs.includes('export function validateBackup'));
+check('verrou données — buildBackup exporté (copie complète)', exportTs.includes('export function buildBackup'));
+check('verrou données — clé de stockage identique au hook (budgetgwen.v1)', hook.includes("'budgetgwen.v1'") && app.includes("'budgetgwen.v1.data'"));
+check('verrou données — restauration validée avant écrasement (toast refus)', app.includes('Sauvegarde refusée'));
+check('verrou données — restauration confirmée en deux clics', app.includes('onConfirm={handleRestoreConfirm}'));
+check('verrou données — rechargement après restauration', app.includes('window.location.reload()'));
+check('verrou données — suite : export et sauvegarde testés', suite.includes('===== 11. Paufinage') && suite.includes('transactionsToCsv'));
+
+// ============================================================
 // Etage 2 : suite dynamique sur le vrai hook
 // ============================================================
 
